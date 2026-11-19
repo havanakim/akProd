@@ -1,0 +1,8 @@
+sdk.dir=C\:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk
+DB_IP=10.51.0.235
+DB_PORT=1433
+DB_NAME=JSAK_ERP_TEST
+DB_AUTH_NAME=JSAK_ERP
+DB_USER=
+DB_PASSWORD=
+DB_CLASSES=net.sourceforge.jtds.jdbc.Driver

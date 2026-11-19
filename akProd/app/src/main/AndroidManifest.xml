@@ -1,0 +1,51 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/tkgak"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/tkgak_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.akProd">
+        <activity
+            android:name=".MainActivity4"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+        <activity
+            android:name=".Cp3Activity"
+            android:exported="false" />
+        <activity
+            android:name=".Cp3HistoryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".Cp14Activity"
+            android:exported="false" />
+        <activity
+            android:name=".Cp14HistoryActivity"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.injection.photos"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/capture_paths" />
+        </provider>
+    </application>
+</manifest>

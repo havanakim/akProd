@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity4">
+    <LinearLayout
+        android:id="@+id/main2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@drawable/gradient" >
+        <TextView
+            android:id="@+id/textview21"
+            android:layout_width="match_parent"
+            android:layout_height="55sp"
+            android:layout_gravity="center"
+            android:textColor="@color/black"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:layout_margin="5dp" />
+        <EditText
+            android:id="@+id/edittext1"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+        <EditText
+            android:id="@+id/edittext2"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+        <EditText
+            android:id="@+id/edittext3"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+        <EditText
+            android:id="@+id/edittext4"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+        <EditText
+            android:id="@+id/edittext5"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+        <EditText
+            android:id="@+id/edittext6"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+        <View
+            android:layout_width="match_parent"
+            android:background="@color/darkcyan"
+            android:layout_height="16px" />
+        <EditText
+            android:id="@+id/edittext7"
+            android:layout_height="50sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"/>
+        <EditText
+            android:id="@+id/edittext8"
+            android:layout_height="50sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"/>
+        <EditText
+            android:id="@+id/edittext9"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"
+            android:textSize="13sp"
+            android:layout_height="68sp"
+            android:textStyle="bold"/>
+        <EditText
+            android:id="@+id/edittext10"
+            android:layout_height="50sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black"/>
+        <EditText
+            android:id="@+id/edittext11"
+            android:layout_height="50sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black" />
+        <EditText
+            android:id="@+id/edittext12"
+            android:layout_height="50sp"
+            android:layout_width="match_parent"
+            android:textColor="@color/black" />
+        <Button
+            android:id="@+id/Button1"
+            android:layout_gravity="center"
+            android:layout_width="180dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="5dp"
+            android:backgroundTint="@color/teal_200"
+            android:text="Encryption"
+            android:textSize="16sp"
+            app:cornerRadius="20dp" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

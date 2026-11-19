@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">akProd</string>
+    <string name="title_1">TKG AK Process</string>
+    <string name="l_username">사번</string>
+    <string name="l_password">암호</string>
+    <string name="login">로그인</string>
+    <string name="tkg_ak">TKG애강</string>
+    <string name="pda_in_out">사출기 공정정보</string>
+    <string name="n_exit">종료(Exit)</string>
+    <string name="menu_logout">로그아웃</string>
+</resources>

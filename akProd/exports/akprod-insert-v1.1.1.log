@@ -1,0 +1,14 @@
+--------- beginning of main
+11-17 10:20:15.751 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=미확인 stage=DB 서버에 연결하는 중
+11-17 10:20:15.826 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=미확인 stage=저장 테이블을 확인하는 중
+11-17 10:20:15.878 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=198 stage=동일 요청의 저장 결과를 확인하는 중
+11-17 10:20:15.946 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=198 stage=입력값을 저장하는 중
+11-17 10:20:15.947 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 INSERT template=INSERT INTO [dbo].[CP_Colored] (REQUEST_ID,MACHINE_CODE,USER_ID,CAPTURED_AT,VALUES_JSON,PAYLOAD_SHA256,PHOTO_COUNT,REGISTERED_AT) VALUES (?,?,?,CONVERT(datetime2,?,126),?,?,0,GETDATE())
+11-17 10:20:15.947 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 bind_count=6 json_chars=779 json_utf8_bytes=783 values=redacted
+11-17 10:20:56.230 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 session=198 failure=SQL 0 / HYT00 type=SQLTimeoutException stage=입력값을 저장하는 중
+11-17 10:21:57.553 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=미확인 stage=DB 서버에 연결하는 중
+11-17 10:21:57.621 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=미확인 stage=저장 테이블을 확인하는 중
+11-17 10:21:57.686 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=214 stage=동일 요청의 저장 결과를 확인하는 중
+11-17 10:21:57.724 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 table=CP_Colored session=214 stage=입력값을 저장하는 중
+11-17 10:21:57.724 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 INSERT template=INSERT INTO [dbo].[CP_Colored] (REQUEST_ID,MACHINE_CODE,USER_ID,CAPTURED_AT,VALUES_JSON,PAYLOAD_SHA256,PHOTO_COUNT,REGISTERED_AT) VALUES (?,?,?,CONVERT(datetime2,?,126),?,?,0,GETDATE())
+11-17 10:21:57.724 I/akProdDB(17082): request=85adf3ce-683c-4928-9051-98cf3e2dca24 bind_count=6 json_chars=779 json_utf8_bytes=783 values=redacted

@@ -344,11 +344,12 @@ class MonoTableOcr(
                 chosen.value.any { it in "89" }
         if (page == Cp14TableReader.MIRACON) {
             // The slashed 0 of this font is read as 8 on blurred photos (60.0 -> 68, 40.0 -> 40.8) and a
-            // partial pixel fix still leaves 8s. Fill a value only when it has no 8/9 left and matched the
-            // printed layout. A forwarded, down-sized photo (60.0 read once as 65) also needs two passes.
+            // partial pixel fix still leaves 8s, so a value with an 8/9 left is never filled. A forwarded,
+            // down-sized photo (60.0 read once as 65) must also match the printed layout and come from two
+            // passes; a camera original may drop padding (053.0 read as 53) and is trusted as read.
             val downSized = maxOf(image.width, image.height) < 2500
-            if (chosen.value.any { it in "89" } || chosen.value !in displayMatched[key].orEmpty() ||
-                downSized && (options[chosen.value]?.second ?: 0) < 2) ambiguous = true
+            if (chosen.value.any { it in "89" } || downSized && (chosen.value !in displayMatched[key].orEmpty() ||
+                    (options[chosen.value]?.second ?: 0) < 2)) ambiguous = true
         }
         return Decision(chosen, pressureAgreement, remaining.takeIf { it.size > 1 }, ambiguous)
     }

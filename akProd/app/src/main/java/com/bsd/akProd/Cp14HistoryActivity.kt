@@ -70,7 +70,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
             loadList(results, notice)
         }
         button("선택 삭제") { deleteSelected(results, notice) }
-        button(if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "등록 화면으로") { finish() }
+        button(if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") { leave() }
         loadList(results, notice)
     }
 
@@ -82,6 +82,15 @@ class Cp14HistoryActivity : AppCompatActivity() {
         require(!start.after(end)) { "시작일은 종료일 이후일 수 없습니다." }
         val next = Calendar.getInstance().apply { time = end; add(Calendar.DATE, 1) }
         return from + "T00:00:00" to format.format(next.time) + "T00:00:00"
+    }
+
+    /** Opened from the menu: just close. Opened after registering: close the registration screen too and return to the main menu. */
+    private fun leave() {
+        if (!intent.getBooleanExtra("fromMenu", false)) startActivity(
+            android.content.Intent(this, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        )
+        finish()
     }
 
     private val deletion by lazy { HistoryDeleteSelection(this) }
@@ -251,7 +260,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     "fromMenu",
                     false
                 )
-            ) "메뉴로" else "등록 화면으로") to { finish() }).forEach { (title, action) ->
+            ) "메뉴로" else "메뉴 가기") to { leave() }).forEach { (title, action) ->
             row.addView(Button(this).apply {
                 text = title; isAllCaps = false; setOnClickListener { if (!busy) action() }
             }, LinearLayout.LayoutParams(0, -2, 1f))

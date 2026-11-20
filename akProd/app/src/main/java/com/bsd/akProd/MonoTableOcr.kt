@@ -260,9 +260,33 @@ class MonoTableOcr(
         val cell: Cp14TableReader.Cell,
         val pressureAgreement: String?,
         val conflict: Set<String>?,
-        val ambiguousDigits: Boolean
+        val ambiguousDigits: Boolean,
+        val outOfOrder: Boolean = false
     ) {
-        val value get() = if (conflict == null && !ambiguousDigits) cell.value else null
+        val value get() = if (conflict == null && !ambiguousDigits && !outOfOrder) cell.value else null
+    }
+
+    /**
+     * All decisions, with the stage-position order checked: while some decided position breaks the
+     * order, the one breaking it against the most others is withheld (marked [Decision.outOfOrder]).
+     */
+    fun decideAll(): Map<String, Decision> {
+        val decisions = candidates.keys.mapNotNull { key -> decide(key)?.let { key to it } }.toMap().toMutableMap()
+        for (row in Cp14TableReader.orderedPositions) {
+            while (true) {
+                val known = row.mapIndexedNotNull { i, key -> decisions[key]?.value?.toBigDecimalOrNull()?.let { Triple(i, key, it) } }
+                val breaks = known.associate { (i, key, v) ->
+                    key to known.count { (j, _, w) -> (j < i && w >= v) || (j > i && w <= v) }
+                }
+                val most = breaks.values.maxOrNull()?.takeIf { it > 0 } ?: break
+                // A tie (two values contradicting only each other) cannot say which one is wrong: withhold both.
+                breaks.filterValues { it == most }.keys.forEach { key ->
+                    decisions[key] = decisions.getValue(key).copy(outOfOrder = true)
+                    log.append("[순서 불일치] $key=${decisions.getValue(key).cell.value}\n")
+                }
+            }
+        }
+        return decisions
     }
 
     fun decide(key: String): Decision? {
@@ -295,7 +319,10 @@ class MonoTableOcr(
             val ranked = remaining.sortedByDescending { options[it]?.second ?: 0 }
             val top = ranked[0]; val topVotes = options[top]?.second ?: 0
             val rival = ranked.drop(1).maxOf { options[it]?.second ?: 0 }
-            if (top in verifiedSet && topVotes >= 2 && topVotes >= rival * 2) remaining = setOf(top)
+            // Votes cannot settle 0 against 8/9: if a rival is the same reading with a zero there
+            // (130.0 vs 130.8), only the pixels could tell, so the conflict stays.
+            val zeroRival = ranked.drop(1).any { ZeroCandidateAgreement.supersedes(it, top) }
+            if (top in verifiedSet && topVotes >= 2 && topVotes >= rival * 2 && !zeroRival) remaining = setOf(top)
         }
         if (remaining.size == 1) options[remaining.single()]?.first?.let { chosen = it }
         val ambiguous = key in segmentReview && key !in zeroCorrected && pressureAgreement == null &&

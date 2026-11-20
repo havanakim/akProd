@@ -40,6 +40,8 @@ class MonoHeaderTest {
         assertEquals(true, Cp14TableReader.matchesDisplay("IV1", "02.7"))
         assertEquals(false, Cp14TableReader.matchesDisplay("IV3", "2230"))
         assertEquals(false, Cp14TableReader.matchesDisplay("S0", "13.8"))
-        assertEquals(null, Cp14TableReader.matchesDisplay("BP1", "020"))
+        assertEquals(true, Cp14TableReader.matchesDisplay("BP1", "20"))
+        assertEquals(false, Cp14TableReader.matchesDisplay("S5", "818"))
+        assertEquals(true, Cp14TableReader.matchesDisplay("RV1", "16.3"))
     }
 }

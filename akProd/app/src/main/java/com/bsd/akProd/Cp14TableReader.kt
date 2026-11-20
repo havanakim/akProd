@@ -199,8 +199,16 @@ object Cp14TableReader {
     /** Fixed digit layout printed on the HYUNDAI 사출 및 보압 screen (e.g. 041.0, 076, 27.0, 000, 035.0). */
     private val displayFormats = mapOf(
         "IF" to Regex("\\d{3}\\.\\d"), "S0" to Regex("\\d{3}\\.\\d"), "IP" to Regex("\\d{3}"),
-        "IV" to Regex("\\d{2}\\.\\d"), "HP" to Regex("\\d{3}"), "HT" to Regex("\\d{3}\\.\\d")
+        "IV" to Regex("\\d{2}\\.\\d"), "HP" to Regex("\\d{3}"), "HT" to Regex("\\d{3}\\.\\d"),
+        // 계량·배압 화면: 010.0 / 24.0 / 20
+        "S" to Regex("\\d{3}\\.\\d"), "RV" to Regex("\\d{2}\\.\\d"), "BP" to Regex("\\d{2,3}")
     )
+
+    /**
+     * Stage positions run one way along the screen arrows (S5 ==> S1, IF5 ==> IF1 ==> S0), so a
+     * decided position that breaks the order against most others is a misread (010.0 read as 818).
+     */
+    val orderedPositions = listOf(listOf("S5", "S4", "S3", "S2", "S1"), listOf("IF5", "IF4", "IF3", "IF2", "IF1", "S0"))
 
     /** null when the field has no known layout; then the format is never used to discard a reading. */
     fun matchesDisplay(key: String, shown: String): Boolean? =

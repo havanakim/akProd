@@ -517,8 +517,7 @@ class Cp14Activity : AppCompatActivity() {
                     status.text = "다른 종류의 화면이 인식되어 사진을 제외했습니다. 화면 종류를 선택하고 새 등록하세요."
                     return@launch
                 }
-                ocr.candidates.keys.forEach { key ->
-                    val decision = ocr.decide(key) ?: return@forEach
+                ocr.decideAll().forEach { (key, decision) ->
                     val chosen = decision.cell
                     val input = fields.getValue(key)
                     val current = input.text.toString().trim()
@@ -531,6 +530,10 @@ class Cp14Activity : AppCompatActivity() {
                     )
                     decision.conflict?.let { remaining ->
                         input.error = "인식 후보 충돌: " + remaining.joinToString(" / ") + ". 사진과 확인해 직접 입력하세요."
+                        return@forEach
+                    }
+                    if (decision.outOfOrder) {
+                        input.error = "위치 순서(S5→S1, IF5→S0)와 맞지 않는 인식값 ${chosen.value}입니다. 사진과 확인해 직접 입력하세요."
                         return@forEach
                     }
                     if (decision.ambiguousDigits) {

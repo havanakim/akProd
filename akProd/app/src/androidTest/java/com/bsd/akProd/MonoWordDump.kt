@@ -24,22 +24,25 @@ object MonoWordDump {
         val failures = mutableListOf<String>()
         try {
             val truth = JSONObject(assets.assets.open("holding1120/truth.json").bufferedReader().readText())
+            JSONObject(assets.assets.open("metering1120/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
             runBlocking {
                 val photos = assets.assets.list("holding1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "holding1120/$it" } +
-                    assets.assets.list("positions").orEmpty().sorted().map { "positions/$it" }
-                for (path in photos.filter { only == null || it.endsWith(only) }) {
+                    assets.assets.list("positions").orEmpty().sorted().map { "positions/$it" } +
+                    assets.assets.list("metering1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "metering1120/$it" }
+                for (path in photos.filter { only == null || it.contains(only) }) {
                     val name = path.substringAfter("/")
+                    val page = if (path.startsWith("metering1120")) Cp14TableReader.METERING else Cp14TableReader.INJECTION
                     val decoded = assets.assets.open(path).use { BitmapFactory.decodeStream(it)!! }
                     val rotation = assets.assets.open(path).use { androidx.exifinterface.media.ExifInterface(it).rotationDegrees }
                     val image = if (rotation == 0) decoded else android.graphics.Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height,
                         android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }, true).also { decoded.recycle() }
-                    val ocr = MonoTableOcr(image, Cp14TableReader.INJECTION,
-                        Cp14TableReader.labelsFor(Cp14TableReader.INJECTION).keys, skip = skip)
+                    val ocr = MonoTableOcr(image, page, Cp14TableReader.labelsFor(page).keys, skip = skip)
                     ocr.run(latin, korean)
+                    val decisions = ocr.decideAll()
                     val values = JSONObject()
                     val expected = truth.optJSONObject(name) ?: truth.getJSONObject(path.substringBefore("/") + "/*")
-                    for (key in Cp14TableReader.labelsFor(Cp14TableReader.INJECTION).keys) {
-                        val decision = ocr.decide(key)
+                    for (key in Cp14TableReader.labelsFor(page).keys) {
+                        val decision = decisions[key]
                         val actual = decision?.value
                         values.put(key, JSONObject().put("value", actual ?: JSONObject.NULL)
                             .put("candidates", ocr.candidates[key]?.keys?.joinToString() ?: "")

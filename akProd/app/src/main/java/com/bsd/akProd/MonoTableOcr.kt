@@ -75,10 +75,19 @@ class MonoTableOcr(
             val glyphs = original.words
             val left = glyphs.minOf { it.left }; val top = glyphs.minOf { it.top }
             val right = glyphs.maxOf { it.right }; val bottom = glyphs.maxOf { it.bottom }
-            val corrected = CaptureNumberCorrection.correct(
+            val zeroCheck = CaptureNumberCorrection.correct(
                 image, left, top, right, bottom, glyphs.joinToString("") { it.text },
                 context, Cp14TableReader.MACHINE
             )
+            // The slashed zero is also misread as 3 or 6 (100.0 -> 103.0, 130.0 -> 136.0). Probe those
+            // glyphs like an 8; only a positively verified zero shape replaces them, a real 3/6 stays.
+            val base = zeroCheck ?: OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
+            val slashed = zeroFromThreeOrSix(base, left, top, right, bottom)
+            if (slashed != null) {
+                Cp14TableReader.number(base)?.let { beforeZeroCorrection.getOrPut(key) { mutableSetOf() }.add(it) }
+                log.append("[0/3·6 형태 보정] $key : $base -> $slashed\n")
+            }
+            val corrected = slashed ?: zeroCheck
             val cell = if (corrected != null) {
                 zeroCorrected.add(key)
                 beforeZeroCorrection.getOrPut(key) { mutableSetOf() }.add(original.value)
@@ -101,6 +110,19 @@ class MonoTableOcr(
                 counts[cell.value] = (counts[cell.value] ?: 0) + 1
             }
         }
+    }
+
+    private fun zeroFromThreeOrSix(text: String, left: Float, top: Float, right: Float, bottom: Float): String? {
+        if (!text.matches(Regex("[0-9]+(?:\\.[0-9]+)?")) || text.none { it == '3' || it == '6' }) return null
+        val probe = text.map { if (it == '3' || it == '6') '8' else it }.joinToString("")
+        val verified = CaptureNumberCorrection.correct(image, left, top, right, bottom, probe, context, Cp14TableReader.MACHINE)
+            ?: return null
+        if (verified.length != probe.length) return null
+        // Keep every non-3/6 position as already decided; a 3/6 changes only when it verified as 0.
+        val merged = text.indices.joinToString("") { i ->
+            if (text[i] == '3' || text[i] == '6') (if (verified[i] == '0') "0" else text[i].toString()) else text[i].toString()
+        }
+        return merged.takeIf { it != text }
     }
 
     /** Full-image passes, LCD passes, then enlarged reading of missing/conflicting cells. */

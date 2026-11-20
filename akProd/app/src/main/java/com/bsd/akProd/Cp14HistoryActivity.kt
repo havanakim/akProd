@@ -44,11 +44,6 @@ class Cp14HistoryActivity : AppCompatActivity() {
     private fun text(value: String, size: Float = 16f) =
         TextView(this).apply { text = value; textSize = size; body.addView(this) }
 
-    private fun button(title: String, action: () -> Unit) = Button(this).apply {
-        text = title; isAllCaps =
-        false; body.addView(this); setOnClickListener { if (!busy) action() }
-    }
-
     private fun list() {
         body.setPadding(20, 20, 20, 20)
         selectedId = null
@@ -56,19 +51,19 @@ class Cp14HistoryActivity : AppCompatActivity() {
         text(if (screenType.isNotEmpty()) "계량/배압(m) · 내 저장자료" else "CP_mono · 내 저장자료", 22f)
         text("${intent.getStringExtra("empName").orEmpty()} · $user")
         text("촬영/불러오기 현지시각 기준 · 한 페이지 20건")
-        text("시작일 (yyyy-MM-dd)")
-        val start = EditText(this).apply { setSingleLine(); setText(from); body.addView(this) }
-        text("종료일 (yyyy-MM-dd)")
-        val end = EditText(this).apply { setSingleLine(); setText(to); body.addView(this) }
+        val (start, end) = HistoryFilterBar.dates(this, body, from, to)
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
         val notice = text("")
         val results =
             LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
-        button("조회") {
-            from = start.text.toString().trim(); to = end.text.toString().trim(); page = 0
-            loadList(results, notice)
-        }
-        button("선택 삭제") { deleteSelected(results, notice) }
-        button(if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") { leave() }
+        HistoryFilterBar.buttons(this, buttons, listOf(
+            "조회" to {
+                from = start.text.toString().trim(); to = end.text.toString().trim(); page = 0
+                loadList(results, notice)
+            },
+            "선택 삭제" to { deleteSelected(results, notice) },
+            (if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") to { leave() }
+        )) { !busy }
         loadList(results, notice)
     }
 
@@ -251,19 +246,10 @@ class Cp14HistoryActivity : AppCompatActivity() {
         }
 
     private fun detailNavigation() {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf(
+        HistoryFilterBar.buttons(this, body, listOf(
             "목록으로" to { list() },
-            (if (intent.getBooleanExtra(
-                    "fromMenu",
-                    false
-                )
-            ) "메뉴로" else "메뉴 가기") to { leave() }).forEach { (title, action) ->
-            row.addView(Button(this).apply {
-                text = title; isAllCaps = false; setOnClickListener { if (!busy) action() }
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-        }
-        body.addView(row)
+            (if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") to { leave() }
+        )) { !busy }
     }
 
     override fun onSaveInstanceState(out: Bundle) {

@@ -70,6 +70,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
             from = start.text.toString().trim(); to = end.text.toString().trim(); page = 0
             loadList(results, notice)
         }
+        button("선택 삭제") { deleteSelected(results, notice) }
         button(if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "등록 화면으로") { finish() }
         loadList(results, notice)
     }
@@ -84,13 +85,30 @@ class Cp14HistoryActivity : AppCompatActivity() {
         return from + "T00:00:00" to format.format(next.time) + "T00:00:00"
     }
 
-    private fun loadList(results: LinearLayout, notice: TextView) {
+    private val deletion by lazy { HistoryDeleteSelection(this) }
+
+    private fun deleteSelected(results: LinearLayout, notice: TextView) {
+        deletion.confirm({ notice.text = "삭제할 자료를 목록에서 선택하세요." }) { ids ->
+            busy = true; notice.text = "${ids.size}건 삭제 중…"
+            lifecycleScope.launch {
+                val message = try {
+                    val removed = withContext(Dispatchers.IO) { Cp14Repository.delete(user, ids) }
+                    "${removed}건을 삭제했습니다."
+                } catch (e: Exception) {
+                    e.message ?: "삭제 실패: DB 연결을 확인하세요."
+                }
+                busy = false; loadList(results, notice, message + "\n")
+            }
+        }
+    }
+
+    private fun loadList(results: LinearLayout, notice: TextView, done: String = "") {
         val range = try {
             dateRange()
         } catch (e: Exception) {
             notice.text = e.message ?: "날짜를 확인하세요."; return
         }
-        busy = true; results.removeAllViews(); notice.text = "저장자료 조회 중…"
+        busy = true; results.removeAllViews(); notice.text = "저장자료 조회 중…"; deletion.clear()
         lifecycleScope.launch {
             try {
                 val rows = withContext(Dispatchers.IO) {
@@ -102,20 +120,16 @@ class Cp14HistoryActivity : AppCompatActivity() {
                         screenType
                     )
                 }
-                notice.text = "${page + 1}페이지 · ${minOf(rows.size, 20)}건"
+                notice.text = done + "${page + 1}페이지 · ${minOf(rows.size, 20)}건"
                 if (rows.isEmpty()) results.addView(TextView(this@Cp14HistoryActivity).apply {
                     text = "해당 기간에 저장된 자료가 없습니다."
                 })
                 rows.take(20).forEach { row ->
-                    results.addView(Button(this@Cp14HistoryActivity).apply {
-                        text = "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}"
-                        isAllCaps = false
-                        setOnClickListener {
-                            if (!busy) {
-                                selectedId = row.requestId; detail(row.requestId)
-                            }
+                    deletion.row(results, row.requestId, "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}") {
+                        if (!busy) {
+                            selectedId = row.requestId; detail(row.requestId)
                         }
-                    })
+                    }
                 }
                 if (page > 0) results.addView(Button(this@Cp14HistoryActivity).apply {
                     text = "이전 페이지"; setOnClickListener {

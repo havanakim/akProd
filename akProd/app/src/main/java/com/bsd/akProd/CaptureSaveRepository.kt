@@ -117,6 +117,40 @@ internal object CaptureSaveRepository {
         }
     }
 
+    /**
+     * Permanently deletes the user's own records (and their stored photos) in one transaction;
+     * nothing is deleted if any statement fails. Returns how many records were removed.
+     */
+    fun delete(target: Target, user: String, ids: Collection<String>): Int {
+        require(user.isNotBlank()) { "다시 로그인하세요." }
+        require(ids.isNotEmpty() && ids.size <= 100) { "삭제할 자료를 1~100건 선택하세요." }
+        val marks = ids.joinToString(",") { "?" }
+        val table = "[dbo].[${target.table}]"
+        return DBHelper.getConnection().use { c ->
+            c.autoCommit = false
+            try {
+                fun bind(statement: java.sql.PreparedStatement) {
+                    statement.queryTimeout = 30
+                    statement.setString(1, user); statement.setString(2, target.machine)
+                    ids.forEachIndexed { i, id -> statement.setString(3 + i, id) }
+                }
+                // Photo rows reference the record (no cascade), so they go first.
+                c.prepareStatement(
+                    "DELETE P FROM [dbo].[${target.table}_PHOTO] P INNER JOIN $table C ON C.REQUEST_ID=P.REQUEST_ID " +
+                            "WHERE C.USER_ID=? AND C.MACHINE_CODE=? AND C.REQUEST_ID IN ($marks)"
+                ).use { bind(it); it.executeUpdate() }
+                val removed = c.prepareStatement(
+                    "DELETE FROM $table WHERE USER_ID=? AND MACHINE_CODE=? AND REQUEST_ID IN ($marks)"
+                ).use { bind(it); it.executeUpdate() }
+                c.commit()
+                removed
+            } catch (e: Exception) {
+                runCatching { c.rollback() }
+                throw IllegalStateException("삭제 실패(변경 없음): ${e.message}", e)
+            }
+        }
+    }
+
     internal fun digest(user: String, capturedAt: String, json: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
         listOf("CP_VALUES_ONLY_V1", user, capturedAt, json).forEach {

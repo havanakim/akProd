@@ -10,6 +10,9 @@ object Cp14Repository {
              onStage: (String) -> Unit = {}) {
         CaptureSaveRepository.save(CaptureSaveRepository.Target.MONO,requestId,user,capturedAt,json,onStage,trace=CaptureDbLog::write)
     }
+    /** Permanently deletes the user's selected records and their photos; returns the number removed. */
+    fun delete(user: String,ids: Collection<String>): Int =
+        CaptureSaveRepository.delete(CaptureSaveRepository.Target.MONO,user,ids)
     fun search(user: String,from: String,toExclusive: String,offset: Int,screenType: String=""): List<Summary> {
         require(user.isNotBlank() && offset>=0)
         return (DBHelper.getConnection() ?: error("DB 연결 실패")).use { connection ->

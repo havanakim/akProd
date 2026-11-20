@@ -42,12 +42,18 @@ object ColorZeroGlyph {
      * first locate the clearly dark strokes, then judge only that glyph with a margin around it.
      */
     fun loneZero(w: Int, h: Int, pixels: IntArray): Boolean {
+        val (sw, sh, sub) = locateGlyph(w, h, pixels) ?: return false
+        return correct(sw, sh, sub, "8") == "0"
+    }
+
+    /** The single glyph inside a cell crop, with a margin: width, height and its pixels. */
+    internal fun locateGlyph(w: Int, h: Int, pixels: IntArray): Triple<Int, Int, IntArray>? {
         val gray = IntArray(pixels.size) { i ->
             val c = pixels[i]; ((c shr 16 and 255) * 299 + (c shr 8 and 255) * 587 + (c and 255) * 114) / 1000
         }
         val sorted = gray.sorted()
         val median = sorted[sorted.size / 2]; val darkest = sorted[sorted.size / 200]
-        if (median - darkest < 30) return false
+        if (median - darkest < 30) return null
         val cut = darkest + (median - darkest) * 45 / 100
         val dark = BooleanArray(gray.size) { gray[it] <= cut }
         val borderRow = BooleanArray(h) { y -> (0 until w).count { dark[y * w + it] } > w / 2 }
@@ -75,26 +81,34 @@ object ColorZeroGlyph {
                 best = tail; left = l; right = r; top = t; bottom = b
             }
         }
-        if (right < 0) return false
+        if (right < 0) return null
+        // On a small photo a zero's thin caps break, leaving its two walls as separate components:
+        // take in every stroke beside the chosen one at the same height.
+        val reach = (bottom - top + 1) * 7 / 10
+        val (l0, r0, t0, b0) = listOf(left, right, top, bottom)
+        for (y in t0..b0) for (x in (l0 - reach).coerceAtLeast(0)..(r0 + reach).coerceAtMost(w - 1)) if (ink[y * w + x]) {
+            left = minOf(left, x); right = maxOf(right, x)
+        }
         val pad = maxOf(2, (bottom - top) / 5)
         val x0 = (left - pad).coerceAtLeast(0); val x1 = (right + pad).coerceAtMost(w - 1)
         val y0 = (top - pad).coerceAtLeast(0); val y1 = (bottom + pad).coerceAtMost(h - 1)
         val sw = x1 - x0 + 1; val sh = y1 - y0 + 1
-        val sub = IntArray(sw * sh) { i -> pixels[(y0 + i / sw) * w + x0 + i % sw] }
-        return correct(sw, sh, sub, "8") == "0"
+        return Triple(sw, sh, IntArray(sw * sh) { i -> pixels[(y0 + i / sw) * w + x0 + i % sw] })
     }
 
     fun correct(w: Int, h: Int, pixels: IntArray, rawText: String): String? {
         val raw = rawText.replace(Regex("\\s"), "")
         if (!raw.matches(Regex("[0-9]+(?:\\.[0-9]+)?")) || raw.none { it == '8' || it == '9' }) return null
         if (w < 6 || h < 10 || pixels.size != w * h) return null
-        val gray = smooth(w, h, IntArray(pixels.size) { i ->
+        val gray = smoothIfLarge(w, h, IntArray(pixels.size) { i ->
             val c = pixels[i]; ((c shr 16 and 255) * 299 + (c shr 8 and 255) * 587 + (c and 255) * 114) / 1000
         })
         val otsu = otsu(gray) ?: return null
         val positions = raw.indices.filter { raw[it] != '.' }
         // Looser thresholds pull in cell borders, so only the Otsu level and two stricter ones are used.
-        val verdicts = listOf(0, -8, -16).map { shift -> classify(w, h, gray, otsu + shift, positions.size) ?: return null }
+        // Thin strokes of small (forwarded, ~25 px) digits break at stricter levels, so test a slightly looser one.
+        val shifts = if (h >= 40) listOf(0, -8, -16) else listOf(0, 4)
+        val verdicts = shifts.map { shift -> classify(w, h, gray, otsu + shift, positions.size) ?: return null }
         val output = raw.toCharArray(); var changed = false
         positions.forEachIndexed { index, position ->
             if (raw[position] in "89" && verdicts.all { it[index] }) { output[position] = '0'; changed = true }
@@ -104,7 +118,7 @@ object ColorZeroGlyph {
 
     /** Diagnostic for tests: segmentation and per-glyph measurements at the Otsu threshold. */
     internal fun describe(w: Int, h: Int, pixels: IntArray, digits: Int): String {
-        val gray = smooth(w, h, IntArray(pixels.size) { i ->
+        val gray = smoothIfLarge(w, h, IntArray(pixels.size) { i ->
             val c = pixels[i]; ((c shr 16 and 255) * 299 + (c shr 8 and 255) * 587 + (c and 255) * 114) / 1000
         })
         val t = otsu(gray) ?: return "no threshold"
@@ -167,9 +181,17 @@ object ColorZeroGlyph {
             val bottomCap = cap(.8f, 1f)
             debug?.append("glyph $b aspect=%.2f edge=%.2f lowerLeft=%.2f top=%.2f bottom=%.2f\n"
                 .format(aspect, edge, lowerLeft, topCap, bottomCap))
-            aspect in .35f..0.95f && edge >= .5f && lowerLeft >= .45f && topCap >= .45f && bottomCap >= .45f
+            val capMin = if (bh >= 40) .45f else .35f // a blurred small cap is fainter, yet a wiped one is gone
+            // Small 8s lose their waist but keep caps as dark as the blurred bar (cap/peak >= 0.9); small zeros do not.
+            val small = bh < 40
+            aspect in .35f..0.95f && edge >= (if (small) .6f else .5f) && lowerLeft >= .45f &&
+                topCap >= capMin && bottomCap >= capMin && (!small || edge >= .75f || maxOf(topCap, bottomCap) < .9f)
         }
     }
+
+    // The 3x3 blur only tames panel stripes at camera resolution; on a forwarded half-size photo
+    // (digits ~25 px) it would also erase the 8's pinched waist.
+    private fun smoothIfLarge(w: Int, h: Int, g: IntArray) = if (h >= 40) smooth(w, h, g) else g
 
     private fun smooth(w: Int, h: Int, g: IntArray): IntArray {
         val out = g.copyOf()

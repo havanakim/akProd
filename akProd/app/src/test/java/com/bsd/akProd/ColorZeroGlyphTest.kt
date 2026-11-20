@@ -14,6 +14,8 @@ class ColorZeroGlyphTest {
     private val photos = mutableMapOf<String, BufferedImage>()
     private fun photo(name: String) = photos.getOrPut(name) {
         val raw = ImageIO.read(File("src/androidTest/assets/coloredInjection/$name.jpg"))
+        // Camera originals are stored landscape with EXIF rotation; a forwarded copy is already upright.
+        if (raw.width < raw.height) return@getOrPut raw
         BufferedImage(raw.height, raw.width, BufferedImage.TYPE_INT_RGB).also { out ->
             for (y in 0 until raw.height) for (x in 0 until raw.width) out.setRGB(raw.height - 1 - y, x, raw.getRGB(x, y))
         }
@@ -31,8 +33,31 @@ class ColorZeroGlyphTest {
         Case("20261116_090538", 1355, 1235, 70, 57, "79", null),
         // A lone "0" ML Kit skipped (HOLD_3 pressure): tight box and the whole trimmed cell interior.
         Case("20261116_090526", 955, 1910, 70, 75, "8", "0"),
-        Case("20261116_090526", 785, 1900, 250, 85, "8", "0")
+        Case("20261116_090526", 785, 1900, 250, 85, "8", "0"),
+        // The same panel forwarded at half size (1500x2000, digits ~25 px tall), as reported from the device.
+        Case("20261116_090538_half", 1058, 780, 90, 36, "138.0", null),
+        Case("20261116_090538_half", 913, 780, 90, 36, "180.0", "100.0"),
+        Case("20261116_090538_half", 250, 727, 70, 36, "8.0", "0.0"),
+        Case("20261116_090538_half", 522, 622, 50, 40, "78", null),
+        Case("20261116_090538_half", 522, 672, 35, 40, "8", null),
+        Case("20261116_090538_half", 780, 778, 90, 38, "48.0", null)
     )
+
+    /**
+     * Pressure cells of the half-size forwarded photo, as the app found them. HOLD_3's "0" must be
+     * found; glare has all but erased HOLD_2's "0", which must stay blank rather than be guessed.
+     */
+    @Test
+    fun loneZeroOnHalfSizePhoto() {
+        val image = photo("20261116_090538_half")
+        fun lone(l: Float, t: Float, r: Float, b: Float): Boolean {
+            val x = ((l + (r - l) * .08f) * image.width).toInt(); val y = ((t + (b - t) * .12f) * image.height).toInt()
+            val w = ((r - (r - l) * .08f) * image.width).toInt() - x; val h = ((b - (b - t) * .12f) * image.height).toInt() - y
+            return ColorZeroGlyph.loneZero(w, h, image.getRGB(x, y, w, h, null, 0, w))
+        }
+        assertEquals(true, lone(.1422f, .3094f, .2233f, .3452f))
+        assertEquals(false, lone(.2233f, .3094f, .3044f, .3452f))
+    }
 
     /** Same trimming as [ColorZeroGlyph.loneZero], on the cell rectangle the app logged for HOLD_3 pressure. */
     @Test
@@ -47,12 +72,14 @@ class ColorZeroGlyphTest {
 
     @Test
     fun dottedZeroOnlyReplacesVerifiedZeros() {
-        cases.forEach { c ->
+        val failures = cases.mapNotNull { c ->
             val image = photo(c.photo)
             val px = image.getRGB(c.x, c.y, c.w, c.h, null, 0, c.w)
             val actual = ColorZeroGlyph.correct(c.w, c.h, px, c.ocr)
-            if (actual != c.expected) println(ColorZeroGlyph.describe(c.w, c.h, px, c.ocr.count { it != '.' }))
-            assertEquals("${c.photo} ${c.ocr}", c.expected, actual)
+            if (actual == c.expected) null
+            else "${c.photo} ${c.ocr} expected=${c.expected} actual=$actual\n" + ColorZeroGlyph.describe(c.w, c.h, px, c.ocr.count { it != '.' })
         }
+        failures.forEach(::println)
+        assertEquals(emptyList<String>(), failures.map { it.lineSequence().first() })
     }
 }

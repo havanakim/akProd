@@ -12,4 +12,19 @@ object ZeroCandidateAgreement {
         if(x==y) return false
         return x.indices.all { x[it]==y[it] || x[it]=='0' && y[it] in "89" }
     }
+
+    /**
+     * True when [top] and [rival] differ only where both show 0, 8 or 9 (148 vs 140 or 149), and [top]
+     * has an 8/9 at one of those places, i.e. choosing [top] would trust a doubtful 8/9.
+     */
+    fun eightOrNineAgainstZeroLike(top: String,rival: String): Boolean {
+        val a=top.toBigDecimalOrNull() ?: return false
+        val b=rival.toBigDecimalOrNull() ?: return false
+        val scale=maxOf(a.scale(),b.scale())
+        val p=a.setScale(scale).toPlainString(); val q=b.setScale(scale).toPlainString()
+        val length=maxOf(p.length,q.length)
+        val x=p.padStart(length,'0'); val y=q.padStart(length,'0')
+        val differing=x.indices.filter { x[it]!=y[it] }
+        return differing.isNotEmpty() && differing.all { x[it] in "089" && y[it] in "089" } && differing.any { x[it] in "89" }
+    }
 }

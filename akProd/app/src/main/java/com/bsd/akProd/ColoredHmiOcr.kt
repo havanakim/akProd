@@ -96,6 +96,10 @@ object ColoredHmiOcr {
                 val tally=votes[key].orEmpty().filterKeys { candidate -> verified[key].orEmpty().none { ZeroCandidateAgreement.supersedes(it,candidate) } }
                 val sorted=tally.entries.sortedByDescending { it.value }
                 if(sorted.isEmpty()) return null
+                // Readings that differ only where they say 0/8/9 (140 vs 148 vs 149: a crack or glare over the
+                // 0) mean that glyph was not read reliably. A zero misread as 8/9 is the common error, so votes
+                // may still pick the 0 there, but never an 8/9 against such a rival.
+                if(sorted.drop(1).any { ZeroCandidateAgreement.eightOrNineAgainstZeroLike(sorted[0].key,it.key) }) return null
                 return sorted[0].key.takeIf { (sorted.size==1 || sorted[0].value>sorted[1].value) && sorted[0].value>=2 }
             }
             fun accept(text:com.google.mlkit.vision.text.Text,w:Int,h:Int,local:RectF,pass:String) {

@@ -127,7 +127,7 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             app:backgroundTint="#B45309"
-            android:text="계량/배합(m)"
+            android:text="계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
         <TextView
@@ -186,7 +186,7 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             app:backgroundTint="#B45309"
-            android:text="계량/배합(m)"
+            android:text="계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
         <View

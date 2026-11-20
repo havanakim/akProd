@@ -58,6 +58,10 @@ class Cp14Activity : AppCompatActivity() {
     private var restoring = false
     private val meteringMenu get() = intent.getStringExtra("screenType") == Cp14TableReader.METERING
     private var recordPage = Cp14TableReader.INJECTION
+    /** 계량/배압(m) chooses between its two screens; the injection menu between injection and metering. */
+    private val selectablePages
+        get() = if (meteringMenu) listOf(Cp14TableReader.METERING, Cp14TableReader.MIRACON)
+        else listOf(Cp14TableReader.INJECTION, Cp14TableReader.METERING)
     private var changingPage = false
     private lateinit var pageSelector: Spinner
     private lateinit var pageDescription: TextView
@@ -90,7 +94,7 @@ class Cp14Activity : AppCompatActivity() {
         }
         setContentView(ScrollView(this).apply { addView(body) })
         label(
-            if (meteringMenu) "계양,배합/흘림방지" else "CP_mono · 수치 등록 (v${BuildConfig.VERSION_NAME})",
+            if (meteringMenu) "계량/배압(m) · 수치 등록" else "CP_mono · 수치 등록 (v${BuildConfig.VERSION_NAME})",
             22f
         )
         label(
@@ -98,14 +102,16 @@ class Cp14Activity : AppCompatActivity() {
                 intent.getStringExtra("empNo").orEmpty()
             })"
         )
-        recordPage = if (meteringMenu) Cp14TableReader.METERING else state?.getString("recordPage")
+        recordPage = if (meteringMenu) state?.getString("recordPage")?.takeIf { it in selectablePages }
+            ?: Cp14TableReader.METERING
+        else state?.getString("recordPage")
             ?: if (state?.getBoolean("pending") == true) Cp14TableReader.LEGACY else Cp14TableReader.INJECTION
         label("화면 종류를 선택해 수치를 등록합니다. 사진은 OCR에만 사용하며 다른 화면은 새 등록으로 구분하세요.")
         pageDescription = label("")
         pageSelector = Spinner(this).apply {
             adapter = ArrayAdapter(
                 this@Cp14Activity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("사출 위치 및 보압 (26개)", "계량·배압·흘림방지 (15개)")
+                selectablePages.map { Cp14TableReader.pageTitle(it) + " (" + Cp14TableReader.labelsFor(it).size + "개)" }
             )
         }
         body.addView(pageSelector); editing.add(pageSelector)
@@ -116,8 +122,8 @@ class Cp14Activity : AppCompatActivity() {
                 position: Int,
                 id: Long
             ) {
-                if (!meteringMenu && !changingPage && recordPage != Cp14TableReader.LEGACY && ::confirmed.isInitialized) changePage(
-                    if (position == 0) Cp14TableReader.INJECTION else Cp14TableReader.METERING
+                if (!changingPage && recordPage != Cp14TableReader.LEGACY && ::confirmed.isInitialized) changePage(
+                    selectablePages[position]
                 )
             }
 
@@ -192,7 +198,7 @@ class Cp14Activity : AppCompatActivity() {
                 ); message("0 글꼴 학습을 초기화했습니다.")
             }
         }
-        Cp14TableReader.stages.forEach { stage ->
+        (Cp14TableReader.stages + Cp14TableReader.miraconStages).forEach { stage ->
             val firstChild = body.childCount
             label(Cp14TableReader.stageName(stage), 20f)
             Cp14TableReader.labels.filterKeys { Cp14TableReader.prefix(it) == stage }
@@ -330,14 +336,14 @@ class Cp14Activity : AppCompatActivity() {
         absent.forEach { (key, check) -> if (check.isChecked) fields[key]?.isEnabled = false }
         photoSelector.isEnabled = !value
         pageSelector.isEnabled =
-            !meteringMenu && !value && !pending && !saved && recordPage != Cp14TableReader.LEGACY
+            !value && !pending && !saved && recordPage != Cp14TableReader.LEGACY
     }
 
     private fun applyPage() {
         changingPage = true
         pageSelector.visibility =
-            if (meteringMenu || recordPage == Cp14TableReader.LEGACY) android.view.View.GONE else android.view.View.VISIBLE
-        pageSelector.setSelection(if (recordPage == Cp14TableReader.METERING) 1 else 0)
+            if (recordPage == Cp14TableReader.LEGACY) android.view.View.GONE else android.view.View.VISIBLE
+        pageSelector.setSelection(selectablePages.indexOf(recordPage).coerceAtLeast(0))
         pageDescription.text =
             Cp14TableReader.pageTitle(recordPage) + " · " + activeLabels().size + "개 항목 · 화면별 별도 저장"
         groupViews.forEach { (prefix, views) ->
@@ -502,6 +508,7 @@ class Cp14Activity : AppCompatActivity() {
 
     private fun readTable(image: Bitmap, photo: Photo) {
         val ocr = MonoTableOcr(image, recordPage, activeLabels().keys, this)
+        var handedOff = false
         status.text = "IF·S0·IP·IV·HP·HT·S·RV·BP 헤더와 바로 아래 숫자를 분석하는 중…"
         lifecycleScope.launch {
             try {
@@ -509,12 +516,24 @@ class Cp14Activity : AppCompatActivity() {
                 photo.ocr += ocr.log.toString()
                 if (isDestroyed) return@launch
                 if (ocr.wrongPage) {
+                    val other = ocr.suggestedPage
+                    // First photo of an empty entry shows the other screen of this menu: switch and read again.
+                    if (other != null && other != recordPage && other in selectablePages && photos == listOf(photo) &&
+                        fields.values.all { it.text.isBlank() }
+                    ) {
+                        recordPage = other; applyPage()
+                        status.text = Cp14TableReader.pageTitle(other) + " 화면으로 인식되어 화면 종류를 바꿔 다시 읽습니다."
+                        handedOff = true
+                        readTable(image, photo)
+                        return@launch
+                    }
                     photos.remove(photo)
                     updatePhotoSelector()
                     if (photos.isEmpty()) {
                         capturedAt = ""; preview.bitmap = null; preview.regions.clear()
                     }
-                    status.text = "다른 종류의 화면이 인식되어 사진을 제외했습니다. 화면 종류를 선택하고 새 등록하세요."
+                    status.text = "다른 종류의 화면" + (ocr.suggestedPage?.let { "(" + Cp14TableReader.pageTitle(it) + ")" } ?: "") +
+                        "이 인식되어 사진을 제외했습니다. 화면 종류를 선택하고 새 등록하세요."
                     return@launch
                 }
                 ocr.decideAll().forEach { (key, decision) ->
@@ -578,7 +597,7 @@ class Cp14Activity : AppCompatActivity() {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (!isDestroyed) status.text = "사진 인식 실패: ${e.message ?: e.javaClass.simpleName}"
             } finally {
-                if (!isDestroyed) setBusy(false)
+                if (!isDestroyed && !handedOff) setBusy(false)
             }
         }
     }

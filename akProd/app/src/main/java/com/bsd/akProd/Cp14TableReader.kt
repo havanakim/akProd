@@ -9,16 +9,29 @@ object Cp14TableReader {
     const val INJECTION = "INJECTION_HOLDING"
     const val METERING = "METERING_BACK_PRESSURE"
     const val LEGACY = "LEGACY_COMBINED"
+    /** HYUNDAI MIRACON-I 계량·배압 screen: BP1~3, R1~3 + SB.SPEED, S6 ==> S5 ==> S0 ==> SB. */
+    const val MIRACON = "METERING_MIRACON"
     val stages = listOf("IF", "S0", "IP", "IV", "HP", "HT", "S", "RV", "BP")
+    val miraconStages = listOf("MBP", "MR", "MS")
     val blankAllowed = emptySet<String>()
     val groups = linkedMapOf(
         "IF" to "사출 위치 설정 (mm)", "S0" to "사출 시작 위치 설정 (mm)",
         "IP" to "사출 압력 (kg/cm²)", "IV" to "사출 속도 (%)", "HP" to "보압 압력 (kg/cm²)",
-        "HT" to "보압 시간 (sec)", "S" to "계량 위치 (mm)", "RV" to "계량 속도 (%)", "BP" to "배압 (kg/cm²)"
+        "HT" to "보압 시간 (sec)", "S" to "계량 위치 (mm)", "RV" to "계량 속도 (%)", "BP" to "배압 (kg/cm²)",
+        "MBP" to "배압 (kg/cm²)", "MR" to "계량 속도 (%)", "MS" to "계량 위치 (mm)"
     )
+    /** MIRACON keys carry an M prefix so they never mix with the S5~S1 screen; text is as printed. */
+    private val miraconKeys = linkedMapOf(
+        "MBP1" to "BP1", "MBP2" to "BP2", "MBP3" to "BP3",
+        "MR1" to "R1", "MR2" to "R2", "MR3" to "R3", "MRS" to "SB.SPEED",
+        "MS6" to "S6", "MS5" to "S5", "MS0" to "S0", "MSB" to "SB"
+    )
+    fun printedName(key: String) = miraconKeys[key] ?: key
     val labels = linkedMapOf<String, String>().apply {
         groups.forEach { (prefix, title) ->
             if (prefix == "S0") put("S0", "S0 · $title")
+            else if (prefix in miraconStages) miraconKeys.filterKeys { prefix(it) == prefix }
+                .forEach { (key, printed) -> put(key, "$printed · $title") }
             else for (stage in 5 downTo 1) put("$prefix$stage", "$prefix$stage · $title")
         }
     }
@@ -40,6 +53,7 @@ object Cp14TableReader {
     fun prefixes(page: String): Set<String> = when (page) {
         INJECTION -> setOf("IF", "S0", "IP", "IV", "HP", "HT")
         METERING -> setOf("S", "RV", "BP")
+        MIRACON -> miraconStages.toSet()
         LEGACY -> stages.toSet()
         else -> error("화면 구분을 선택하세요.")
     }
@@ -47,6 +61,7 @@ object Cp14TableReader {
     fun pageTitle(page: String) = when (page) {
         INJECTION -> "사출 및 보압"
         METERING -> "계량·배압·흘림방지"
+        MIRACON -> "MIRACON-I 계량·배압"
         else -> "기존 통합자료"
     }
 
@@ -73,7 +88,9 @@ object Cp14TableReader {
     data class Result(
         val cells: Map<String, Cell>,
         val visibleStages: Set<String>,
-        val headers: List<Word>
+        val headers: List<Word>,
+        /** MIRACON-only headers (R1~R3, SB.SPEED, S6) seen while reading another screen. */
+        val miraconHeaders: Int = 0
     )
 
     private fun compact(text: String) = text.uppercase().replace(Regex("[\\s<>=→←:：()]"), "")
@@ -84,7 +101,14 @@ object Cp14TableReader {
             // The mono LCD font draws V like U; ML Kit reads IV1..IV5 as IU1/IUi/IUZ/IUS.
             .replace(Regex("^[I1L|][UW](?=[1-5SIZ]${'$'})"), "IV")
             .replace(Regex("^[8${'$'}](?=[1-5SI]${'$'})"), "S")
-        if (cleaned in setOf("S0", "SO", "S8", "SB", "SØ")) return "S0"
+        // Anchors fed back between passes keep their MIRACON key.
+        if (cleaned.matches(Regex("M(BP[1-3]|R[1-3S]|S[650B])"))) return cleaned
+        // MIRACON-I headers: R1~R3, SB.SPEED, S6 and SB (SB stays separate here; see [alias]).
+        if (cleaned.matches(Regex("(SB\\.?|S8\\.?)?SPEED"))) return "RS"
+        Regex("R([1-3])").matchEntire(cleaned)?.let { return "R" + it.groupValues[1] }
+        if (cleaned == "S6" || cleaned == "SG") return "S6"
+        if (cleaned == "SB") return "SB"
+        if (cleaned in setOf("S0", "SO", "S8", "SØ")) return "S0"
         val match =
             Regex("^(IF|IP|IV|HP|HT|RV|BP|S)([1-5SIZ])$").matchEntire(cleaned) ?: return null
         val digit = when (match.groupValues[2]) {
@@ -99,7 +123,39 @@ object Cp14TableReader {
             ?.toBigDecimal()?.stripTrailingZeros()?.toPlainString()
     }
 
-    fun read(words: List<Word>): Result {
+    private val miraconOnly = setOf("R1", "R2", "R3", "RS", "S6")
+
+    /**
+     * MIRACON-I codes become M-keys; elsewhere they are dropped (only counted, so a MIRACON photo in
+     * another screen can be recognised) and "SB" is the usual misreading of S0.
+     */
+    private fun alias(candidates: LinkedHashMap<String, MutableList<Word>>, page: String) {
+        if (page != MIRACON) {
+            candidates.remove("SB")?.let { candidates.getOrPut("S0") { mutableListOf() }.addAll(it) }
+            miraconOnly.forEach { candidates.remove(it) }
+            return
+        }
+        // S0 and SB are both read as S0/SB/S8; along "S6 ==> S5 ==> S0 ==> SB" the left one is S0.
+        val zeroLike = (candidates.remove("S0").orEmpty() + candidates.remove("SB").orEmpty().map { it.copy(text = "SB") })
+            .sortedBy { it.x }
+        when {
+            zeroLike.size >= 2 -> {
+                candidates.getOrPut("MS0") { mutableListOf() }.add(zeroLike.first().copy(text = "MS0"))
+                candidates.getOrPut("MSB") { mutableListOf() }.add(zeroLike.last().copy(text = "MSB"))
+            }
+            zeroLike.size == 1 -> {
+                val key = if (zeroLike.single().text == "SB") "MSB" else "MS0"
+                candidates.getOrPut(key) { mutableListOf() }.add(zeroLike.single().copy(text = key))
+            }
+        }
+        val rename = mapOf("BP1" to "MBP1", "BP2" to "MBP2", "BP3" to "MBP3", "R1" to "MR1", "R2" to "MR2",
+            "R3" to "MR3", "RS" to "MRS", "S6" to "MS6", "S5" to "MS5")
+        rename.forEach { (from, to) ->
+            candidates.remove(from)?.let { list -> candidates.getOrPut(to) { mutableListOf() }.addAll(list.map { it.copy(text = to) }) }
+        }
+    }
+
+    fun read(words: List<Word>, page: String = INJECTION): Result {
         val candidates = linkedMapOf<String, MutableList<Word>>()
         words.filter { it.height > 0 }.forEach { first ->
             val near = words.filter {
@@ -134,6 +190,8 @@ object Cp14TableReader {
                 break
             }
         }
+        val miraconHeaders = if (page == MIRACON) 0 else candidates.keys.count { it in miraconOnly }
+        alias(candidates, page)
         val all = candidates.values.flatten()
         fun support(word: Word) = all.filter {
             rowFamily(it.text) == rowFamily(word.text) &&
@@ -193,7 +251,7 @@ object Cp14TableReader {
                 ?: return@forEach
             output[code] = Cell(value, row)
         }
-        return Result(output, anchors.keys.map { prefix(it) }.toSet(), anchors.values.toList())
+        return Result(output, anchors.keys.map { prefix(it) }.toSet(), anchors.values.toList(), miraconHeaders)
     }
 
     /** Fixed digit layout printed on the HYUNDAI 사출 및 보압 screen (e.g. 041.0, 076, 27.0, 000, 035.0). */
@@ -201,14 +259,16 @@ object Cp14TableReader {
         "IF" to Regex("\\d{3}\\.\\d"), "S0" to Regex("\\d{3}\\.\\d"), "IP" to Regex("\\d{3}"),
         "IV" to Regex("\\d{2}\\.\\d"), "HP" to Regex("\\d{3}"), "HT" to Regex("\\d{3}\\.\\d"),
         // 계량·배압 화면: 010.0 / 24.0 / 20
-        "S" to Regex("\\d{3}\\.\\d"), "RV" to Regex("\\d{2}\\.\\d"), "BP" to Regex("\\d{2,3}")
+        "S" to Regex("\\d{3}\\.\\d"), "RV" to Regex("\\d{2}\\.\\d"), "BP" to Regex("\\d{2,3}"),
+        // MIRACON-I: BP 03, R 60.0 / SB.SPEED 40.0, S6~S0 010.0 and SB 06.0
+        "MBP" to Regex("\\d{2,3}"), "MR" to Regex("\\d{2}\\.\\d"), "MS" to Regex("\\d{2,3}\\.\\d")
     )
 
     /**
      * Stage positions run one way along the screen arrows (S5 ==> S1, IF5 ==> IF1 ==> S0), so a
      * decided position that breaks the order against most others is a misread (010.0 read as 818).
      */
-    val orderedPositions = listOf(listOf("S5", "S4", "S3", "S2", "S1"), listOf("IF5", "IF4", "IF3", "IF2", "IF1", "S0"))
+    val orderedPositions = listOf(listOf("S5", "S4", "S3", "S2", "S1"), listOf("IF5", "IF4", "IF3", "IF2", "IF1", "S0"), listOf("MS6", "MS5", "MS0"))
 
     /** null when the field has no known layout; then the format is never used to discard a reading. */
     fun matchesDisplay(key: String, shown: String): Boolean? =

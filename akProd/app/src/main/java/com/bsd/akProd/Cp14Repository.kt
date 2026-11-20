@@ -17,11 +17,13 @@ object Cp14Repository {
                 SELECT REQUEST_ID,USER_ID,CONVERT(varchar(23),CAPTURED_AT,121) AS LOCAL_CAPTURED_AT,JSON_VALUE(VALUES_JSON,'$.SCREEN_TYPE') AS SCREEN_TYPE,PHOTO_COUNT
                 FROM [dbo].[CP_mono]
                 WHERE MACHINE_CODE=? AND USER_ID=? AND CAPTURED_AT>=CONVERT(datetime2,?,126) AND CAPTURED_AT<CONVERT(datetime2,?,126)
-                AND (?='' OR JSON_VALUE(VALUES_JSON,'$.SCREEN_TYPE')=?)
+                AND (?='' OR JSON_VALUE(VALUES_JSON,'$.SCREEN_TYPE') IN (?,?))
                 ORDER BY CAPTURED_AT DESC,REQUEST_ID DESC OFFSET ? ROWS FETCH NEXT 21 ROWS ONLY
             """.trimIndent()).use { statement ->
                 statement.queryTimeout=30; statement.setString(1,Cp14TableReader.MACHINE); statement.setString(2,user)
-                statement.setString(3,from); statement.setString(4,toExclusive); statement.setString(5,screenType); statement.setString(6,screenType); statement.setInt(7,offset)
+                statement.setString(3,from); statement.setString(4,toExclusive); statement.setString(5,screenType); statement.setString(6,screenType)
+                // The 계량/배압(m) menu lists both of its screens.
+                statement.setString(7,if(screenType==Cp14TableReader.METERING) Cp14TableReader.MIRACON else screenType); statement.setInt(8,offset)
                 statement.executeQuery().use { rows -> buildList {
                     while(rows.next()) add(Summary(rows.getString("REQUEST_ID"),rows.getString("USER_ID"),rows.getString("LOCAL_CAPTURED_AT"),rows.getInt("PHOTO_COUNT"),rows.getString("SCREEN_TYPE") ?: Cp14TableReader.LEGACY))
                 } }

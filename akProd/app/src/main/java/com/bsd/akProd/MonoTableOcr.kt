@@ -39,6 +39,9 @@ class MonoTableOcr(
     val log = StringBuilder()
     var wrongPage = false
         private set
+    /** When [wrongPage]: the screen the photo appears to show, if recognisable. */
+    var suggestedPage: String? = null
+        private set
 
     private fun words(text: Text, width: Int, height: Int, roi: RectF) =
         text.textBlocks.flatMap { block -> block.lines.flatMap { it.elements } }
@@ -62,12 +65,21 @@ class MonoTableOcr(
         val tokens = words(text, width, height, roi)
         log.append("[인식 경로] $pass\n")
         if (roi.width() < .5f) log.append("[원문] " + text.text.replace("\n", " / ") + "\n")
-        val parsed = Cp14TableReader.read(tokens + anchors.values)
+        val parsed = Cp14TableReader.read(tokens + anchors.values, page)
         parsed.headers.forEach { anchors.putIfAbsent(it.text, it) }
-        if (pass == "원본" && page != Cp14TableReader.LEGACY && parsed.cells.keys.any {
+        if (pass == "원본" && page != Cp14TableReader.LEGACY && (parsed.miraconHeaders >= 2 || parsed.cells.keys.any {
                 Cp14TableReader.prefix(it) !in Cp14TableReader.prefixes(page)
-            }) {
+            })) {
             wrongPage = true
+            // Which screen the photo shows, so the metering menu can switch to it.
+            suggestedPage = when {
+                parsed.miraconHeaders >= 2 -> Cp14TableReader.MIRACON
+                // The S5~S1 metering screen has no S0; MIRACON-I's position row does.
+                page == Cp14TableReader.METERING && "S0" in parsed.cells -> Cp14TableReader.MIRACON
+                parsed.cells.keys.any { Cp14TableReader.prefix(it) in Cp14TableReader.prefixes(Cp14TableReader.METERING) } -> Cp14TableReader.METERING
+                parsed.cells.keys.any { Cp14TableReader.prefix(it) in Cp14TableReader.prefixes(Cp14TableReader.INJECTION) } -> Cp14TableReader.INJECTION
+                else -> null
+            }
             return
         }
         log.append("[표 인식]\n" + parsed.cells.entries.joinToString("\n") { (key, cell) -> "${Cp14TableReader.labels[key]}=${cell.value}" } + "\n")
@@ -75,10 +87,13 @@ class MonoTableOcr(
             val glyphs = original.words
             val left = glyphs.minOf { it.left }; val top = glyphs.minOf { it.top }
             val right = glyphs.maxOf { it.right }; val bottom = glyphs.maxOf { it.bottom }
+            val rawText = OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
+            // The check exists to turn misread 8/9 back into 0. On small photos it can instead invent
+            // 8s (030.0 -> 830.0, 53 -> 853.0); a "correction" with more 8/9 than the reading is refused.
             val zeroCheck = CaptureNumberCorrection.correct(
                 image, left, top, right, bottom, glyphs.joinToString("") { it.text },
                 context, Cp14TableReader.MACHINE
-            )
+            )?.takeIf { fixed -> fixed.count { it in "89" } <= rawText.count { it in "89" } }
             // The slashed zero is also misread as 3 or 6 (100.0 -> 103.0, 130.0 -> 136.0). Probe those
             // glyphs like an 8; only a positively verified zero shape replaces them, a real 3/6 stays.
             val base = zeroCheck ?: OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
@@ -325,8 +340,15 @@ class MonoTableOcr(
             if (top in verifiedSet && topVotes >= 2 && topVotes >= rival * 2 && !zeroRival) remaining = setOf(top)
         }
         if (remaining.size == 1) options[remaining.single()]?.first?.let { chosen = it }
-        val ambiguous = key in segmentReview && key !in zeroCorrected && pressureAgreement == null &&
+        var ambiguous = key in segmentReview && key !in zeroCorrected && pressureAgreement == null &&
                 chosen.value.any { it in "89" }
+        if (page == Cp14TableReader.MIRACON) {
+            // MIRACON-I photos so far arrive small and blurred; its slashed 0 is then read as 8 (60.0 -> 68,
+            // 030.0 -> 830, 40.0 -> 40.8) and a partial pixel fix still leaves 8s. Fill a value only when it
+            // has no 8/9 left and matched the printed layout.
+            if (chosen.value.any { it in "89" } || chosen.value !in displayMatched[key].orEmpty() ||
+                (options[chosen.value]?.second ?: 0) < 2) ambiguous = true
+        }
         return Decision(chosen, pressureAgreement, remaining.takeIf { it.size > 1 }, ambiguous)
     }
 

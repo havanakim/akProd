@@ -56,7 +56,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
         body.setPadding(20, 20, 20, 20)
         selectedId = null
         body.removeAllViews()
-        text(if (screenType.isNotEmpty()) "계양,배합/흘림방지 · 내 저장자료" else "CP_mono · 내 저장자료", 22f)
+        text(if (screenType.isNotEmpty()) "계량/배압(m) · 내 저장자료" else "CP_mono · 내 저장자료", 22f)
         text("${intent.getStringExtra("empName").orEmpty()} · $user")
         text("촬영/불러오기 현지시각 기준 · 한 페이지 20건")
         text("시작일 (yyyy-MM-dd)")
@@ -151,14 +151,18 @@ class Cp14HistoryActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val record = withContext(Dispatchers.IO) { Cp14Repository.get(user, id) }
-                check(screenType.isEmpty() || record.summary.screenType == screenType) { "이 메뉴의 저장자료가 아닙니다." }
+                // The 계량/배압(m) menu holds both of its screens (S5~S1 and MIRACON-I).
+                val sameMenu = record.summary.screenType == screenType ||
+                    screenType == Cp14TableReader.METERING && record.summary.screenType == Cp14TableReader.MIRACON
+                check(screenType.isEmpty() || sameMenu) { "이 메뉴의 저장자료가 아닙니다." }
                 notice.text =
                     Cp14TableReader.pageTitle(record.summary.screenType) + "\n${record.summary.capturedAt} · 작업자 ${record.summary.user}"
                 val fields = JSONObject(record.json).getJSONObject("FIELDS")
                 val table = TableLayout(this@Cp14HistoryActivity)
                 val header = TableRow(this@Cp14HistoryActivity)
                 header.addView(cell("항목 / 단위", true, 2f))
-                for (stage in 5 downTo 1) header.addView(cell("${stage}단", true))
+                val miracon = record.summary.screenType == Cp14TableReader.MIRACON
+                for (stage in 5 downTo 1) header.addView(cell(if (miracon) "" else "${stage}단", true))
                 table.addView(header)
                 Cp14TableReader.groups.filterKeys { it in Cp14TableReader.prefixes(record.summary.screenType) }.entries.forEachIndexed { index, (prefix, title) ->
                     val values = TableRow(this@Cp14HistoryActivity).apply {
@@ -166,8 +170,17 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     }
                     val label = prefix + " · " + title.substringBefore(" (")
                         .replace(" ", "") + "\n" + title.substringAfter(" (", "").removeSuffix(")")
-                    values.addView(cell(label, false, 2f))
-                    if (prefix == "S0") {
+                    values.addView(cell(if (miracon) title.substringBefore(" (").replace(" ", "") + "\n" +
+                        title.substringAfter(" (", "").removeSuffix(")") else label, false, 2f))
+                    if (miracon) {
+                        // MIRACON-I columns are named as printed (BP1, R1, SB.SPEED, S6, SB ...).
+                        val keys = Cp14TableReader.labels.keys.filter { Cp14TableReader.prefix(it) == prefix }
+                        keys.forEach { key ->
+                            values.addView(cell(Cp14TableReader.printedName(key) + "\n" +
+                                if (fields.isNull(key)) "—" else fields.optString(key, "—")))
+                        }
+                        repeat(5 - keys.size) { values.addView(cell("")) }
+                    } else if (prefix == "S0") {
                         values.addView(
                             cell(
                                 if (fields.isNull("S0")) "—" else fields.optString(

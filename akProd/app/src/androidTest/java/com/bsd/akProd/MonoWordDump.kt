@@ -25,13 +25,19 @@ object MonoWordDump {
         try {
             val truth = JSONObject(assets.assets.open("holding1120/truth.json").bufferedReader().readText())
             JSONObject(assets.assets.open("metering1120/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
+            JSONObject(assets.assets.open("miracon1120/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
             runBlocking {
                 val photos = assets.assets.list("holding1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "holding1120/$it" } +
                     assets.assets.list("positions").orEmpty().sorted().map { "positions/$it" } +
-                    assets.assets.list("metering1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "metering1120/$it" }
+                    assets.assets.list("metering1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "metering1120/$it" } +
+                    assets.assets.list("miracon1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "miracon1120/$it" }
                 for (path in photos.filter { only == null || it.contains(only) }) {
                     val name = path.substringAfter("/")
-                    val page = if (path.startsWith("metering1120")) Cp14TableReader.METERING else Cp14TableReader.INJECTION
+                    val page = when {
+                        path.startsWith("metering1120") -> Cp14TableReader.METERING
+                        path.startsWith("miracon1120") -> Cp14TableReader.MIRACON
+                        else -> Cp14TableReader.INJECTION
+                    }
                     val decoded = assets.assets.open(path).use { BitmapFactory.decodeStream(it)!! }
                     val rotation = assets.assets.open(path).use { androidx.exifinterface.media.ExifInterface(it).rotationDegrees }
                     val image = if (rotation == 0) decoded else android.graphics.Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height,

@@ -33,7 +33,7 @@ object Cp14TableReaderCheck {
         check(metering.cells.size==15 && metering.cells["S1"]?.value=="148")
         check(metering.cells["S5"]?.value=="10" && metering.cells["RV2"]?.value=="25")
         check(metering.cells["BP1"]?.value=="20")
-        check((injection.cells+metering.cells).size==35 && Cp14TableReader.labels.size==41)
+        check((injection.cells+metering.cells).size==35 && Cp14TableReader.labels.size==41+11 && Cp14TableReader.labelsFor(Cp14TableReader.MIRACON).size==11)
         Cp14TableReader.validate((injection.cells+metering.cells).mapValues { it.value.value })
         Cp14TableReader.validate(injection.cells.mapValues { it.value.value })
         val split=Cp14TableReader.read(picture(listOf("IP","IV","HP","HT"),split=true))

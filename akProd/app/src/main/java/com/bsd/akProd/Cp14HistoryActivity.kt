@@ -1,6 +1,5 @@
 package com.bsd.akProd
 
-import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -218,13 +217,6 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     table.addView(values)
                 }
                 dataView.addView(table)
-                val photos = LinearLayout(this@Cp14HistoryActivity).apply {
-                    orientation = LinearLayout.VERTICAL; dataView.addView(this)
-                }
-                if (record.summary.photoCount > 0) dataView.addView(Button(this@Cp14HistoryActivity).apply {
-                    text = "저장 사진 보기"
-                    setOnClickListener { if (!busy) loadPhotos(id, photos, this) }
-                })
             } catch (e: Exception) {
                 notice.text = "조회 실패: " + (e.message ?: "저장자료를 확인하세요.")
             } finally {
@@ -263,42 +255,6 @@ class Cp14HistoryActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(0, -2, 1f))
         }
         body.addView(row)
-    }
-
-    private fun loadPhotos(id: String, container: LinearLayout, button: Button) {
-        busy = true; button.isEnabled = false; container.removeAllViews()
-        lifecycleScope.launch {
-            try {
-                val images = withContext(Dispatchers.IO) {
-                    Cp14Repository.photos(user, id).map { photo ->
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeByteArray(photo.jpeg, 0, photo.jpeg.size, bounds)
-                        var sample = 1
-                        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
-                        Triple(
-                            photo.number, photo.loadedAt, BitmapFactory.decodeByteArray(
-                                photo.jpeg, 0, photo.jpeg.size,
-                                BitmapFactory.Options().apply { inSampleSize = sample })
-                        )
-                    }
-                }
-                images.forEach { (number, loadedAt, bitmap) ->
-                    container.addView(TextView(this@Cp14HistoryActivity).apply {
-                        text = "사진 $number · $loadedAt"
-                    })
-                    container.addView(ImageView(this@Cp14HistoryActivity).apply {
-                        adjustViewBounds = true; setImageBitmap(bitmap)
-                    }, LinearLayout.LayoutParams(-1, -2))
-                }
-            } catch (e: Exception) {
-                container.addView(TextView(this@Cp14HistoryActivity).apply {
-                    text = "사진 조회 실패: " + e.message
-                })
-                button.isEnabled = true
-            } finally {
-                busy = false
-            }
-        }
     }
 
     override fun onSaveInstanceState(out: Bundle) {

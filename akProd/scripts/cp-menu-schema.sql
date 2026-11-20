@@ -1,4 +1,4 @@
--- Canonical menu/table names: CP_Colored, CP_mono. Existing records and object permissions are preserved.
+-- Canonical menu/table names: CP_Colored, CP_mono (values only; the former *_PHOTO tables were dropped). Existing records and object permissions are preserved.
 SET XACT_ABORT ON;
 BEGIN TRY
     BEGIN TRANSACTION;
@@ -6,12 +6,8 @@ BEGIN TRY
     INSERT INTO @Renames (OldName,NewName) VALUES
         (N'dbo.AKSMART_CP3_CAPTURE',N'CP_Colored'),
         (N'[dbo].[CP-Colored]',N'CP_Colored'),
-        (N'dbo.AKSMART_CP3_CAPTURE_PHOTO',N'CP_Colored_PHOTO'),
-        (N'[dbo].[CP-Colored_PHOTO]',N'CP_Colored_PHOTO'),
         (N'dbo.AKSMART_CP14_CAPTURE',N'CP_mono'),
-        (N'[dbo].[CP-mono]',N'CP_mono'),
-        (N'dbo.AKSMART_CP14_CAPTURE_PHOTO',N'CP_mono_PHOTO'),
-        (N'[dbo].[CP-mono_PHOTO]',N'CP_mono_PHOTO');
+        (N'[dbo].[CP-mono]',N'CP_mono');
 
     -- Reject collisions before renaming anything; never merge or delete existing data.
     IF EXISTS (
@@ -47,19 +43,6 @@ BEGIN
         PHOTO_COUNT int NOT NULL CHECK (PHOTO_COUNT BETWEEN 0 AND 5)
     );
 END;
-IF OBJECT_ID(N'[dbo].[CP_Colored_PHOTO]',N'U') IS NULL
-BEGIN
-    CREATE TABLE [dbo].[CP_Colored_PHOTO] (
-        REQUEST_ID varchar(36) NOT NULL,
-        PHOTO_NO int NOT NULL,
-        LOADED_AT datetime2(3) NOT NULL,
-        PHOTO_JPEG varbinary(max) NOT NULL,
-        OCR_TEXT nvarchar(max) NOT NULL,
-        CONSTRAINT PK_AKSMART_CP3_CAPTURE_PHOTO PRIMARY KEY (REQUEST_ID,PHOTO_NO),
-        CONSTRAINT FK_AKSMART_CP3_CAPTURE_PHOTO FOREIGN KEY (REQUEST_ID)
-            REFERENCES [dbo].[CP_Colored](REQUEST_ID)
-    );
-END;
 
 
 
@@ -82,19 +65,6 @@ BEGIN
         PHOTO_COUNT int NOT NULL CHECK (PHOTO_COUNT BETWEEN 0 AND 5)
     );
     CREATE INDEX IX_AKSMART_CP14_CAPTURE_USER_DATE ON [dbo].[CP_mono](USER_ID,CAPTURED_AT DESC);
-END;
-IF OBJECT_ID(N'[dbo].[CP_mono_PHOTO]',N'U') IS NULL
-BEGIN
-    CREATE TABLE [dbo].[CP_mono_PHOTO] (
-        REQUEST_ID varchar(36) NOT NULL,
-        PHOTO_NO int NOT NULL,
-        LOADED_AT datetime2(3) NOT NULL,
-        PHOTO_JPEG varbinary(max) NOT NULL,
-        OCR_TEXT nvarchar(max) NOT NULL,
-        CONSTRAINT PK_AKSMART_CP14_CAPTURE_PHOTO PRIMARY KEY (REQUEST_ID,PHOTO_NO),
-        CONSTRAINT FK_AKSMART_CP14_CAPTURE_PHOTO FOREIGN KEY (REQUEST_ID)
-            REFERENCES [dbo].[CP_mono](REQUEST_ID)
-    );
 END;
 
 

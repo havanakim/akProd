@@ -35,7 +35,7 @@ class HistoryDeleteSelection(private val activity: AppCompatActivity) {
         if (chosen.isEmpty()) { onEmpty(); return }
         val ids = chosen.toList()
         AlertDialog.Builder(activity).setTitle("선택 자료 삭제")
-            .setMessage("선택한 ${ids.size}건을 서버에서 영구 삭제합니다.\n저장된 값과 사진이 모두 지워지며 되돌릴 수 없습니다.")
+            .setMessage("선택한 ${ids.size}건을 서버에서 영구 삭제합니다.\n저장된 값이 모두 지워지며 되돌릴 수 없습니다.")
             .setPositiveButton("삭제") { _, _ -> delete(ids) }
             .setNegativeButton("취소", null)
             .show()

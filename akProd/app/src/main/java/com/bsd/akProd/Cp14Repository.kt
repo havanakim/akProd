@@ -4,13 +4,12 @@ package com.bsd.akProd
 object Cp14Repository {
     data class Summary(val requestId: String,val user: String,val capturedAt: String,val photoCount: Int,val screenType: String=Cp14TableReader.LEGACY)
     data class Record(val summary: Summary,val json: String)
-    data class StoredPhoto(val number: Int,val loadedAt: String,val jpeg: ByteArray)
 
     fun save(requestId: String,user: String,capturedAt: String,json: String,
              onStage: (String) -> Unit = {}) {
         CaptureSaveRepository.save(CaptureSaveRepository.Target.MONO,requestId,user,capturedAt,json,onStage,trace=CaptureDbLog::write)
     }
-    /** Permanently deletes the user's selected records and their photos; returns the number removed. */
+    /** Permanently deletes the user's selected records; returns the number removed. */
     fun delete(user: String,ids: Collection<String>): Int =
         CaptureSaveRepository.delete(CaptureSaveRepository.Target.MONO,user,ids)
     fun search(user: String,from: String,toExclusive: String,offset: Int,screenType: String=""): List<Summary> {
@@ -45,22 +44,6 @@ object Cp14Repository {
                     check(rows.next()) { "내 저장자료에서 해당 건을 찾을 수 없습니다." }
                     Record(Summary(rows.getString("REQUEST_ID"),rows.getString("USER_ID"),rows.getString("LOCAL_CAPTURED_AT"),rows.getInt("PHOTO_COUNT"),rows.getString("SCREEN_TYPE") ?: Cp14TableReader.LEGACY),rows.getString("VALUES_JSON"))
                 }
-            }
-        }
-    }
-    fun photos(user: String,id: String): List<StoredPhoto> {
-        require(user.isNotBlank())
-        return (DBHelper.getConnection() ?: error("DB 연결 실패")).use { connection ->
-            connection.prepareStatement("""
-                SELECT P.PHOTO_NO,CONVERT(varchar(23),P.LOADED_AT,121) AS LOCAL_LOADED_AT,P.PHOTO_JPEG
-                FROM [dbo].[CP_mono_PHOTO] P
-                INNER JOIN [dbo].[CP_mono] C ON C.REQUEST_ID=P.REQUEST_ID
-                WHERE C.REQUEST_ID=? AND C.USER_ID=? AND C.MACHINE_CODE=? ORDER BY P.PHOTO_NO
-            """.trimIndent()).use { statement ->
-                statement.queryTimeout=30; statement.setString(1,id); statement.setString(2,user); statement.setString(3,Cp14TableReader.MACHINE)
-                statement.executeQuery().use { rows -> buildList {
-                    while(rows.next()) add(StoredPhoto(rows.getInt("PHOTO_NO"),rows.getString("LOCAL_LOADED_AT"),rows.getBytes("PHOTO_JPEG")))
-                } }
             }
         }
     }

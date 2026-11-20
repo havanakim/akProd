@@ -118,7 +118,7 @@ internal object CaptureSaveRepository {
     }
 
     /**
-     * Permanently deletes the user's own records (and their stored photos) in one transaction;
+     * Permanently deletes the user's own records in one transaction;
      * nothing is deleted if any statement fails. Returns how many records were removed.
      */
     fun delete(target: Target, user: String, ids: Collection<String>): Int {
@@ -134,16 +134,7 @@ internal object CaptureSaveRepository {
                     statement.setString(1, user); statement.setString(2, target.machine)
                     ids.forEachIndexed { i, id -> statement.setString(3 + i, id) }
                 }
-                // Photo rows reference the record (no cascade), so they go first. Values-only databases
-                // never had the photo table; then there is nothing to remove there.
-                val photoTable = c.createStatement().use { s ->
-                    s.queryTimeout = 10
-                    s.executeQuery("SELECT OBJECT_ID(N'dbo.${target.table}_PHOTO',N'U')").use { r -> r.next() && r.getObject(1) != null }
-                }
-                if (photoTable) c.prepareStatement(
-                    "DELETE P FROM [dbo].[${target.table}_PHOTO] P INNER JOIN $table C ON C.REQUEST_ID=P.REQUEST_ID " +
-                            "WHERE C.USER_ID=? AND C.MACHINE_CODE=? AND C.REQUEST_ID IN ($marks)"
-                ).use { bind(it); it.executeUpdate() }
+                // Records hold values only; the former *_PHOTO tables were dropped from the database.
                 val removed = c.prepareStatement(
                     "DELETE FROM $table WHERE USER_ID=? AND MACHINE_CODE=? AND REQUEST_ID IN ($marks)"
                 ).use { bind(it); it.executeUpdate() }

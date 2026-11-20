@@ -15,7 +15,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
-import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
@@ -502,352 +501,83 @@ class Cp14Activity : AppCompatActivity() {
             }
 
     private fun readTable(image: Bitmap, photo: Photo) {
-        val candidates = linkedMapOf<String, MutableMap<String, Pair<Cp14TableReader.Cell, Int>>>()
-        val zeroCorrected = mutableSetOf<String>()
-        val segmentReview = mutableSetOf<String>()
-        val lcdNotices = mutableSetOf<String>()
-        val beforeZeroCorrection = mutableMapOf<String, MutableSet<String>>()
-        val afterZeroCorrection = mutableMapOf<String, MutableSet<String>>()
-        val localVotes = mutableMapOf<String, MutableMap<String, Int>>()
-        val allZeroVerified = mutableSetOf<String>()
-        val anchors = linkedMapOf<String, Cp14TableReader.Word>()
-        var wrongPage = false
-        fun accept(
-            text: Text, width: Int = image.width, height: Int = image.height,
-            roi: RectF = RectF(0f, 0f, 1f, 1f), pass: String = "원본"
-        ) {
-            val tokens = words(text, width, height).map { word ->
-                word.copy(
-                    left = roi.left + word.left * roi.width(),
-                    top = roi.top + word.top * roi.height(),
-                    right = roi.left + word.right * roi.width(),
-                    bottom = roi.top + word.bottom * roi.height()
-                )
-            }
-            photo.ocr += "[인식 경로] $pass\n"
-            val parsed = Cp14TableReader.read(tokens + anchors.values)
-            parsed.headers.forEach { anchors.putIfAbsent(it.text, it) }
-            if (pass == "원본" && recordPage != Cp14TableReader.LEGACY && parsed.cells.keys.any {
-                    Cp14TableReader.prefix(
-                        it
-                    ) !in Cp14TableReader.prefixes(recordPage)
-                }) {
-                wrongPage = true
-                return
-            }
-            photo.ocr += "[표 인식]\n" + parsed.cells.entries.joinToString("\n") { (key, cell) -> "${Cp14TableReader.labels[key]}=${cell.value}" } + "\n"
-            parsed.cells.filterKeys { it in activeLabels() }.forEach { (key, original) ->
-                val glyphs = original.words
-                val corrected = CaptureNumberCorrection.correct(
-                    image,
-                    glyphs.minOf { it.left },
-                    glyphs.minOf { it.top },
-                    glyphs.maxOf { it.right },
-                    glyphs.maxOf { it.bottom },
-                    glyphs.joinToString("") { it.text },
-                    this@Cp14Activity,
-                    Cp14TableReader.MACHINE
-                )
-                val cell = if (corrected != null) {
-                    zeroCorrected.add(key)
-                    beforeZeroCorrection.getOrPut(key) { mutableSetOf() }.add(original.value)
-                    Cp14TableReader.number(corrected)
-                        ?.let { afterZeroCorrection.getOrPut(key) { mutableSetOf() }.add(it) }
-                    photo.ocr += "[0/8/9 형태 보정] $key : " + original.value + " -> " + corrected + "\n"
-                    original.copy(value = Cp14TableReader.number(corrected) ?: original.value)
-                } else original
-                if (corrected == null && CaptureNumberCorrection.needsSegmentReview(
-                        image,
-                        glyphs.minOf { it.left },
-                        glyphs.minOf { it.top },
-                        glyphs.maxOf { it.right },
-                        glyphs.maxOf { it.bottom },
-                        corrected ?: glyphs.joinToString("") { it.text })
-                ) segmentReview.add(key)
-                val votes = candidates.getOrPut(key) { linkedMapOf() }
-                votes[cell.value] = cell to ((votes[cell.value]?.second ?: 0) + 1)
-                if (pass == "미수집 칸 확대" || pass == "칸별 CLAHE" || pass == "칸별 Otsu") {
-                    val counts = localVotes.getOrPut(key) { linkedMapOf() }
-                    counts[cell.value] = (counts[cell.value] ?: 0) + 1
-                }
-            }
-        }
-
-        fun finish() {
-            if (wrongPage) {
-                photos.remove(photo)
-                updatePhotoSelector()
-                if (photos.isEmpty()) {
-                    capturedAt = ""; preview.bitmap = null; preview.regions.clear()
-                }
-                status.text = "다른 종류의 화면이 인식되어 사진을 제외했습니다. 화면 종류를 선택하고 새 등록하세요."
-                setBusy(false)
-                return
-            }
-            candidates.forEach { (key, options) ->
-                val sourceVerified = afterZeroCorrection[key].orEmpty().toSet()
-                val local = localVotes[key].orEmpty().entries.sortedByDescending { it.value }
-                if (local.isNotEmpty() && local[0].value >= 2 && (local.size == 1 || local[0].value > local[1].value)) {
-                    afterZeroCorrection.getOrPut(key) { mutableSetOf() }.add(local[0].key)
-                }
-                val pressureAgreement = if (key.startsWith("HP") && key in allZeroVerified) "0"
-                else if (key.startsWith("BP") || key.startsWith("HP")) MonoLocalAgreement.value(
-                    localVotes[key].orEmpty(),
-                    sourceVerified
-                ) else null
-                val verified =
-                    options.filterKeys { it in afterZeroCorrection[key].orEmpty() }.values
-                val chosen = pressureAgreement?.let { options[it]?.first }
-                    ?: (if (verified.isNotEmpty()) verified else options.values).maxBy { it.second }.first
-                val input = fields.getValue(key)
-                val current = input.text.toString().trim()
-                val tokens = chosen.words
-                preview.regions[key] = RectF(
-                    (tokens.minOf { it.left } - .004f).coerceAtLeast(0f),
-                    (tokens.minOf { it.top } - .004f).coerceAtLeast(0f),
-                    (tokens.maxOf { it.right } + .004f).coerceAtMost(1f),
-                    (tokens.maxOf { it.bottom } + .004f).coerceAtMost(1f)
-                )
-                val remaining =
-                    if (pressureAgreement != null) setOf(pressureAgreement) else options.keys.filterNot { candidate ->
-                        afterZeroCorrection[key].orEmpty()
-                            .any { ZeroCandidateAgreement.supersedes(it, candidate) }
-                    }
-                        .toSet() - beforeZeroCorrection[key].orEmpty() + afterZeroCorrection[key].orEmpty()
-                if (remaining.size > 1) {
-                    input.error =
-                        "인식 후보 충돌: " + remaining.joinToString(" / ") + ". 사진과 확인해 직접 입력하세요."
-                    return@forEach
-                }
-                if (key in segmentReview && key !in zeroCorrected && pressureAgreement == null && chosen.value.any { it in "89" }) {
-                    input.error =
-                        "0/8/9를 구별하지 못했습니다. 숫자 영역을 선택해 확인하거나 직접 입력하세요. 후보: ${chosen.value}"
-                    return@forEach
-                }
-                if (absent[key]?.isChecked == true) input.error =
-                    "사진에서 ${chosen.value}이 인식되었습니다. 표시 없음을 확인하세요."
-                else if (current.isBlank()) {
-                    input.setText(chosen.value)
-                    input.error =
-                        if (pressureAgreement != null) "압력 칸의 확대 인식이 일치했습니다. 사진과 값을 확인하세요."
-                        else if (key in zeroCorrected) "사진의 0/8/9 형태를 보정했습니다. 값을 확인하세요."
-                        else if (key in segmentReview) "0/8/9 세그먼트가 불명확합니다. 사진과 확인하세요." else null
-                } else if (key in zeroCorrected && (Cp14TableReader.number(current)
-                        ?.let { it in beforeZeroCorrection[key].orEmpty() } == true)
-                ) {
-                    input.setText(chosen.value)
-                    input.error = "사진의 0/8/9 형태로 재보정했습니다. 값을 확인하세요."
-                } else if (Cp14TableReader.number(current) != chosen.value) {
-                    input.error = "추가 사진의 값 ${chosen.value}과 기존 값이 다릅니다. 직접 확인하세요."
-                }
-            }
-            preview.invalidate()
-            val count = fields.count { it.key in activeLabels() && it.value.text.isNotBlank() }
-            status.text =
-                "이번 사진 ${candidates.size}개 인식 · 사진 ${photos.size}장 · " + count + "/" + activeLabels().size + "개 확인. 빈칸과 소수점을 확인하세요."
-            if (BuildConfig.DEBUG) {
-                val diagnostic =
-                    JSONObject().put("version", BuildConfig.VERSION_NAME).put("page", recordPage)
-                        .put("headers", JSONArray(anchors.keys.toList()))
-                        .put(
-                            "candidates",
-                            JSONObject(candidates.mapValues { JSONArray(it.value.keys.toList()) })
-                        )
-                        .put(
-                            "localVotes",
-                            JSONObject(localVotes.mapValues { JSONObject(it.value) })
-                        )
-                        .put(
-                            "inputs",
-                            JSONObject(fields.filterKeys { it in activeLabels() }
-                                .mapValues { it.value.text.toString() })
-                        )
-                lifecycleScope.launch(Dispatchers.IO) {
-                    runCatching {
-                        File(
-                            filesDir,
-                            "last-mono-ocr.json"
-                        ).writeText(diagnostic.toString(2))
-                    }
-                }
-            }
-            setBusy(false)
-        }
-
-        fun readLcd() {
-            lifecycleScope.launch {
-                try {
-                    LcdOcrPipeline.run(
-                        image,
-                        latin,
-                        korean,
-                        accept = { text, w, h, roi, pass -> accept(text, w, h, roi, pass) },
-                        notice = { lcdNotices.add(it); photo.ocr += "[LCD 처리] $it\n" })
-                    // Read missing cells at larger scale. Headers determine the region; never fill missing cells with zero.
-                    anchors.values.filter { it.text in activeLabels() && (it.text.startsWith("HP") || candidates[it.text].isNullOrEmpty() || candidates[it.text]!!.size > 1 || (it.text in segmentReview && candidates[it.text]!!.keys.any { value -> value.any { digit -> digit in "89" } })) }
-                        .toList().forEach { anchor ->
-                        val peers = anchors.values.filter {
-                            (if (it.text == "S0") "IF" else Cp14TableReader.prefix(it.text)) == (if (anchor.text == "S0") "IF" else Cp14TableReader.prefix(
-                                anchor.text
-                            ))
-                        }.sortedBy { it.x }
-                        val index = peers.indexOf(anchor)
-                        val half = maxOf(anchor.height * 3.0f, (anchor.right - anchor.left) * .85f)
-                        val l = maxOf(
-                            0f,
-                            anchor.x - half,
-                            if (index > 0) (peers[index - 1].x + anchor.x) / 2 else 0f
-                        )
-                        val r = minOf(
-                            1f,
-                            anchor.x + half,
-                            if (index + 1 < peers.size) (peers[index + 1].x + anchor.x) / 2 else 1f
-                        )
-                        val t = anchor.bottom + anchor.height * .03f
-                        val b = minOf(
-                            1f, anchor.bottom + anchor.height * 2.2f,
-                            Cp14TableReader.nextRowTop(anchor, anchors.values) ?: 1f
-                        )
-                        if (r <= l || b <= t) return@forEach
-                        val x = (l * image.width).toInt();
-                        val y = (t * image.height).toInt()
-                        val w = ((r - l) * image.width).toInt().coerceAtMost(image.width - x)
-                        val h = ((b - t) * image.height).toInt().coerceAtMost(image.height - y)
-                        if (w < 2 || h < 2) return@forEach
-                        val source = Bitmap.createBitmap(image, x, y, w, h)
-                        val enlarged = Bitmap.createScaledBitmap(source, w * 3, h * 3, true)
-                        try {
-                            val roi = RectF(
-                                x.toFloat() / image.width,
-                                y.toFloat() / image.height,
-                                (x + w).toFloat() / image.width,
-                                (y + h).toFloat() / image.height
-                            )
-                            if ((anchor.text.startsWith("HP") || candidates[anchor.text].isNullOrEmpty()) && CaptureNumberCorrection.verifiedZero(
-                                    source,
-                                    if (anchor.text.startsWith("HP")) 3 else null
-                                )
-                            ) {
-                                val word = Cp14TableReader.Word(
-                                    "0",
-                                    roi.left,
-                                    roi.top,
-                                    roi.right,
-                                    roi.bottom
-                                )
-                                candidates.getOrPut(anchor.text) { linkedMapOf() }["0"] =
-                                    Cp14TableReader.Cell("0", listOf(word)) to 1
-                                zeroCorrected.add(anchor.text)
-                                allZeroVerified.add(anchor.text)
-                                afterZeroCorrection.getOrPut(anchor.text) { linkedSetOf() }.add("0")
-                                photo.ocr += "[원본 0 글자 검증] ${anchor.text}=0\n"
-                            }
-                            accept(
-                                LcdOcrPipeline.recognize(latin, enlarged),
-                                enlarged.width,
-                                enlarged.height,
-                                roi,
-                                "미수집 칸 확대"
-                            )
-                            if (anchor.text in allZeroVerified) return@forEach
-                            LcdOcrPipeline.run(
-                                source,
-                                latin,
-                                selected = true,
-                                modes = 2,
-                                accept = { text, cw, ch, local, pass ->
-                                    val mapped = RectF(
-                                        roi.left + local.left * roi.width(),
-                                        roi.top + local.top * roi.height(),
-                                        roi.left + local.right * roi.width(),
-                                        roi.top + local.bottom * roi.height()
-                                    )
-                                    if (pass == "CLAHE" || pass == "Otsu") accept(
-                                        text,
-                                        cw,
-                                        ch,
-                                        mapped,
-                                        "칸별 $pass"
-                                    )
-                                },
-                                notice = {})
-                        } finally {
-                            enlarged.recycle(); source.recycle()
-                        }
-                    }
-                    if (!isDestroyed) {
-                        finish()
-                        if (lcdNotices.isNotEmpty()) status.append("\n" + lcdNotices.joinToString("\n"))
-                    }
-                } finally {
-                    if (!isDestroyed) setBusy(false)
-                }
-            }
-        }
+        val ocr = MonoTableOcr(image, recordPage, activeLabels().keys, this)
         status.text = "IF·S0·IP·IV·HP·HT·S·RV·BP 헤더와 바로 아래 숫자를 분석하는 중…"
-        korean.process(InputImage.fromBitmap(image, 0)).addOnSuccessListener { accept(it) }
-            .addOnCompleteListener {
-                if (isDestroyed) return@addOnCompleteListener
-                val contrast =
-                    Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
-                val gray = ColorMatrix().apply { setSaturation(0f) }
-                gray.postConcat(
-                    ColorMatrix(
-                        floatArrayOf(
-                            1.35f,
-                            0f,
-                            0f,
-                            0f,
-                            -35f,
-                            0f,
-                            1.35f,
-                            0f,
-                            0f,
-                            -35f,
-                            0f,
-                            0f,
-                            1.35f,
-                            0f,
-                            -35f,
-                            0f,
-                            0f,
-                            0f,
-                            1f,
-                            0f
-                        )
-                    )
-                )
-                Canvas(contrast).drawBitmap(
-                    image,
-                    0f,
-                    0f,
-                    Paint().apply { colorFilter = ColorMatrixColorFilter(gray) })
-                latin.process(InputImage.fromBitmap(contrast, 0))
-                    .addOnSuccessListener { accept(it) }
-                    .addOnCompleteListener {
-                        contrast.recycle()
-                        if (!isDestroyed) {
-                            val mask = yellowTextMask(image)
-                            latin.process(InputImage.fromBitmap(mask, 0))
-                                .addOnSuccessListener { accept(it) }
-                                .addOnCompleteListener { mask.recycle(); if (!isDestroyed) readLcd() }
-                        }
+        lifecycleScope.launch {
+            try {
+                ocr.run(latin, korean, alive = { !isDestroyed && !ocr.wrongPage })
+                photo.ocr += ocr.log.toString()
+                if (isDestroyed) return@launch
+                if (ocr.wrongPage) {
+                    photos.remove(photo)
+                    updatePhotoSelector()
+                    if (photos.isEmpty()) {
+                        capturedAt = ""; preview.bitmap = null; preview.regions.clear()
                     }
+                    status.text = "다른 종류의 화면이 인식되어 사진을 제외했습니다. 화면 종류를 선택하고 새 등록하세요."
+                    return@launch
+                }
+                ocr.candidates.keys.forEach { key ->
+                    val decision = ocr.decide(key) ?: return@forEach
+                    val chosen = decision.cell
+                    val input = fields.getValue(key)
+                    val current = input.text.toString().trim()
+                    val tokens = chosen.words
+                    preview.regions[key] = RectF(
+                        (tokens.minOf { it.left } - .004f).coerceAtLeast(0f),
+                        (tokens.minOf { it.top } - .004f).coerceAtLeast(0f),
+                        (tokens.maxOf { it.right } + .004f).coerceAtMost(1f),
+                        (tokens.maxOf { it.bottom } + .004f).coerceAtMost(1f)
+                    )
+                    decision.conflict?.let { remaining ->
+                        input.error = "인식 후보 충돌: " + remaining.joinToString(" / ") + ". 사진과 확인해 직접 입력하세요."
+                        return@forEach
+                    }
+                    if (decision.ambiguousDigits) {
+                        input.error = "0/8/9를 구별하지 못했습니다. 숫자 영역을 선택해 확인하거나 직접 입력하세요. 후보: ${chosen.value}"
+                        return@forEach
+                    }
+                    if (absent[key]?.isChecked == true) input.error =
+                        "사진에서 ${chosen.value}이 인식되었습니다. 표시 없음을 확인하세요."
+                    else if (current.isBlank()) {
+                        input.setText(chosen.value)
+                        input.error =
+                            if (decision.pressureAgreement != null) "압력 칸의 확대 인식이 일치했습니다. 사진과 값을 확인하세요."
+                            else if (key in ocr.zeroCorrected) "사진의 0/8/9 형태를 보정했습니다. 값을 확인하세요."
+                            else if (key in ocr.segmentReview) "0/8/9 세그먼트가 불명확합니다. 사진과 확인하세요." else null
+                    } else if (key in ocr.zeroCorrected && (Cp14TableReader.number(current)
+                            ?.let { it in ocr.beforeZeroCorrection[key].orEmpty() } == true)
+                    ) {
+                        input.setText(chosen.value)
+                        input.error = "사진의 0/8/9 형태로 재보정했습니다. 값을 확인하세요."
+                    } else if (Cp14TableReader.number(current) != chosen.value) {
+                        input.error = "추가 사진의 값 ${chosen.value}과 기존 값이 다릅니다. 직접 확인하세요."
+                    }
+                }
+                preview.invalidate()
+                val count = fields.count { it.key in activeLabels() && it.value.text.isNotBlank() }
+                status.text =
+                    "이번 사진 ${ocr.candidates.size}개 인식 · 사진 ${photos.size}장 · " + count + "/" + activeLabels().size + "개 확인. 빈칸과 소수점을 확인하세요."
+                if (ocr.notices.isNotEmpty()) status.append("\n" + ocr.notices.joinToString("\n"))
+                if (BuildConfig.DEBUG) {
+                    val diagnostic =
+                        JSONObject().put("version", BuildConfig.VERSION_NAME).put("page", recordPage)
+                            .put("headers", JSONArray(ocr.anchors.keys.toList()))
+                            .put("candidates", JSONObject(ocr.candidates.mapValues { JSONArray(it.value.keys.toList()) }))
+                            .put("localVotes", JSONObject(ocr.localVotes.mapValues { JSONObject(it.value) }))
+                            .put("inputs", JSONObject(fields.filterKeys { it in activeLabels() }
+                                .mapValues { it.value.text.toString() }))
+                    withContext(Dispatchers.IO) {
+                        runCatching { File(filesDir, "last-mono-ocr.json").writeText(diagnostic.toString(2)) }
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (!isDestroyed) status.text = "사진 인식 실패: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                if (!isDestroyed) setBusy(false)
             }
-    }
-
-    private fun yellowTextMask(image: Bitmap): Bitmap {
-        val pixels = IntArray(image.width * image.height)
-        image.getPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
-        for (index in pixels.indices) {
-            val pixel = pixels[index];
-            val r = pixel shr 16 and 255;
-            val g = pixel shr 8 and 255;
-            val b = pixel and 255
-            pixels[index] =
-                if (r > 75 && g > 55 && r > b * 1.3 && g > b * 1.2) Color.BLACK else Color.WHITE
         }
-        return Bitmap.createBitmap(pixels, image.width, image.height, Bitmap.Config.ARGB_8888)
     }
 
     private fun readSelected() {

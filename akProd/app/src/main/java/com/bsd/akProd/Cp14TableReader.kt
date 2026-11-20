@@ -81,8 +81,10 @@ object Cp14TableReader {
         val cleaned = compact(text).replace(Regex("^1P"), "IP").replace(Regex("^1V"), "IV")
             .replace(Regex("^[1L|]F"), "IF")
             .replace(Regex("^[RB][UVW]"), "RV")
+            // The mono LCD font draws V like U; ML Kit reads IV1..IV5 as IU1/IUi/IUZ/IUS.
+            .replace(Regex("^[I1L|][UW](?=[1-5SIZ]${'$'})"), "IV")
             .replace(Regex("^[8${'$'}](?=[1-5SI]${'$'})"), "S")
-        if (cleaned == "S0" || cleaned == "SO" || cleaned == "S8") return "S0"
+        if (cleaned in setOf("S0", "SO", "S8", "SB", "SØ")) return "S0"
         val match =
             Regex("^(IF|IP|IV|HP|HT|RV|BP|S)([1-5SIZ])$").matchEntire(cleaned) ?: return null
         val digit = when (match.groupValues[2]) {
@@ -108,16 +110,27 @@ object Cp14TableReader {
             for (count in 1..near.size) {
                 val group = near.take(count)
                 val code = header(group.joinToString("") { it.text }) ?: continue
+                // ML Kit returns "<==IF4" as one word; the arrow would pull the column centre left of
+                // the printed IF4 and cut the last digit of the value under it. Keep only the code glyphs.
+                val first = group.first()
+                val arrow = Regex("^[<>=({\\[\\-—~]+").find(first.text)?.value?.length ?: 0
+                val left = if (arrow in 1 until first.text.length)
+                    first.left + (first.right - first.left) * arrow / first.text.length
+                else first.left
                 val box = Word(
                     code,
-                    group.minOf { it.left },
+                    if (group.size == 1) left else group.minOf { it.left },
                     group.minOf { it.top },
                     group.maxOf { it.right },
                     group.maxOf { it.bottom })
                 val instances = candidates.getOrPut(code) { mutableListOf() }
-                if (instances.none { abs(it.x - box.x) < box.height && abs(it.y - box.y) < box.height }) instances.add(
-                    box
-                )
+                // "<== S0" and "S0" are the same printed header: keep the tighter box instead of two rivals.
+                val overlap = instances.indexOfFirst {
+                    abs(it.y - box.y) < maxOf(it.height, box.height) &&
+                            it.left < box.right && box.left < it.right
+                }
+                if (overlap < 0) instances.add(box)
+                else if (box.right - box.left < instances[overlap].right - instances[overlap].left) instances[overlap] = box
                 break
             }
         }
@@ -134,6 +147,7 @@ object Cp14TableReader {
             // A solitary HP5 label on a graph must not displace the five-column HP table.
             if (winners.size == 1) anchors[code] = winners.single()
         }
+        inferMissingHeaders(anchors)
         val output = linkedMapOf<String, Cell>()
         anchors.forEach { (code, anchor) ->
             val prefix = rowFamily(code)
@@ -180,6 +194,57 @@ object Cp14TableReader {
             output[code] = Cell(value, row)
         }
         return Result(output, anchors.keys.map { prefix(it) }.toSet(), anchors.values.toList())
+    }
+
+    /** Fixed digit layout printed on the HYUNDAI 사출 및 보압 screen (e.g. 041.0, 076, 27.0, 000, 035.0). */
+    private val displayFormats = mapOf(
+        "IF" to Regex("\\d{3}\\.\\d"), "S0" to Regex("\\d{3}\\.\\d"), "IP" to Regex("\\d{3}"),
+        "IV" to Regex("\\d{2}\\.\\d"), "HP" to Regex("\\d{3}"), "HT" to Regex("\\d{3}\\.\\d")
+    )
+
+    /** null when the field has no known layout; then the format is never used to discard a reading. */
+    fun matchesDisplay(key: String, shown: String): Boolean? =
+        displayFormats[prefix(key)]?.matches(OcrNumericGlyphs.canonical(shown))
+
+    private val columnPairs =mapOf("IP" to "IV", "IV" to "IP", "HP" to "HT", "HT" to "HP")
+
+    /**
+     * A header OCR missed (e.g. IV4 between IV5 and IV3) is placed only from printed neighbours:
+     * the midpoint of both same-row neighbours, or the same stage of the paired row (IP/IV, HP/HT)
+     * shifted by the offset measured on at least two shared stages. Values still come from source glyphs.
+     */
+    internal fun inferMissingHeaders(anchors: MutableMap<String, Word>) {
+        repeat(2) {
+            for (prefix in listOf("IF", "IP", "IV", "HP", "HT", "S", "RV", "BP")) {
+                for (stage in 5 downTo 1) {
+                    val code = "$prefix$stage"
+                    if (code in anchors) continue
+                    val before = anchors["$prefix${stage + 1}"]
+                    val after = anchors["$prefix${stage - 1}"]
+                    if (before != null && after != null && after.x > before.x &&
+                        abs(before.y - after.y) < maxOf(before.height, after.height) * 1.5f
+                    ) {
+                        val halfW = ((before.right - before.left) + (after.right - after.left)) / 4
+                        val halfH = (before.height + after.height) / 4
+                        val x = (before.x + after.x) / 2; val y = (before.y + after.y) / 2
+                        anchors[code] = Word(code, x - halfW, y - halfH, x + halfW, y + halfH)
+                        continue
+                    }
+                    val pair = columnPairs[prefix] ?: continue
+                    val source = anchors["$pair$stage"] ?: continue
+                    val shared = (1..5).mapNotNull { s ->
+                        val a = anchors["$prefix$s"]; val b = anchors["$pair$s"]
+                        if (a != null && b != null) (a.x - b.x) to (a.y - b.y) else null
+                    }
+                    if (shared.size < 2) continue
+                    val dx = shared.map { it.first }.sorted()[shared.size / 2]
+                    val dy = shared.map { it.second }.sorted()[shared.size / 2]
+                    val rowHeight = anchors.filterKeys { prefix(it) == prefix }.values.map { it.height }.average().toFloat()
+                    if (abs(dy) < rowHeight * .8f || shared.any { abs(it.second - dy) > rowHeight }) continue
+                    anchors[code] = Word(code, source.left + dx, source.top + dy, source.right + dx, source.bottom + dy)
+                }
+            }
+        }
     }
 
     fun validate(values: Map<String, String>, absent: Set<String> = emptySet()) {

@@ -12,11 +12,14 @@ import java.io.File
 
 class MonoFullPhotoInstrumentation: Instrumentation() {
     private var positions=false
+    private var dump=false
+    private var only:String?=null
     private var holding1119=false
     private var colored1119=false
     private var coloredInjection=false
-    override fun onCreate(arguments: Bundle?) { positions=arguments?.getString("positions")=="true"; holding1119=arguments?.getString("holding1119")=="true"; colored1119=arguments?.getString("colored1119")=="true"; coloredInjection=arguments?.getString("coloredInjection")=="true"; super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) { dump=arguments?.getString("dump")=="true"; only=arguments?.getString("only"); positions=arguments?.getString("positions")=="true"; holding1119=arguments?.getString("holding1119")=="true"; colored1119=arguments?.getString("colored1119")=="true"; coloredInjection=arguments?.getString("coloredInjection")=="true"; super.onCreate(arguments); start() }
     override fun onStart() {
+        if(dump) { MonoWordDump.run(this,context,targetContext,only); return }
         if(positions) { PositionPhotoCheck.run(this,context,targetContext); return }
         if(colored1119) { ColoredMeteringPhotoCheck.run(this,context,targetContext); return }
         if(coloredInjection) { ColoredMeteringPhotoCheck.run(this,context,targetContext,true); return }

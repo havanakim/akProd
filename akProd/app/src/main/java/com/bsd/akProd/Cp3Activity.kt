@@ -32,7 +32,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-class Cp3Activity : AppCompatActivity() {
+open class Cp3Activity : AppCompatActivity() {
+    protected open val registrationPage: String = Cp3TableReader.INJECTION
     private data class Photo(val file: File, val loadedAt: String, var ocr: String = "")
 
     private val photos = mutableListOf<Photo>()
@@ -51,6 +52,7 @@ class Cp3Activity : AppCompatActivity() {
     private lateinit var saveStatus: TextView
     private lateinit var confirmed: CheckBox
     private lateinit var photoSelector: Spinner
+    private lateinit var machine: MachineNoPicker
     private var cameraUri: Uri? = null
     private var requestId = UUID.randomUUID().toString()
     private var capturedAt = ""
@@ -58,7 +60,7 @@ class Cp3Activity : AppCompatActivity() {
     private var pending = false
     private var saved = false
     private var restoring = false
-    private val recordPage get()=intent.getStringExtra("screenType") ?: Cp3TableReader.INJECTION
+    private val recordPage get()=registrationPage
     private fun activeLabels()=Cp3TableReader.labelsFor(recordPage)
     private fun disabledFields()=Cp3TableReader.disabledFor(recordPage)
     private fun selectableLabels()=activeLabels().filterKeys { it !in disabledFields() }
@@ -88,32 +90,20 @@ class Cp3Activity : AppCompatActivity() {
         )
         }
         setContentView(ScrollView(this).apply { addView(body) })
-        label("CP_Colored · 수치 등록 (v${BuildConfig.VERSION_NAME})", 22f)
+        label((if(recordPage==Cp3TableReader.METERING) "계량·흘림방지(color)" else "사출·보압(color)")+" · 수치 등록 (v${BuildConfig.VERSION_NAME})", 22f)
         label(
             "작업자: ${intent.getStringExtra("empName").orEmpty()} (${
                 intent.getStringExtra("empNo").orEmpty()
             })"
         )
         label("전체 사진 또는 좌측/우측 확대 사진을 추가하면 같은 건에 값을 모읍니다. 동일 시점의 설정 화면만 함께 등록하세요.")
-        val pageSelector=Spinner(this).apply {
-            adapter=ArrayAdapter(this@Cp3Activity,android.R.layout.simple_spinner_dropdown_item,listOf("사출·보압 화면","계량·배압 화면"))
-            setSelection(if(recordPage==Cp3TableReader.METERING) 1 else 0)
-        }
-        body.addView(pageSelector); editing.add(pageSelector)
-        pageSelector.onItemSelectedListener=object: AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-            override fun onItemSelected(parent: AdapterView<*>?,view: android.view.View?,position: Int,id: Long) {
-                val selected=if(position==1) Cp3TableReader.METERING else Cp3TableReader.INJECTION
-                if(selected==recordPage) return
-                if(busy || pending || photos.isNotEmpty() || fields.values.any { it.text.isNotBlank() }) {
-                    pageSelector.setSelection(if(recordPage==Cp3TableReader.METERING) 1 else 0)
-                    message("새 등록을 시작한 뒤 화면을 변경하세요."); return
-                }
-                intent.putExtra("screenType",selected); recreate()
-            }
-        }
         label(if(recordPage==Cp3TableReader.METERING) "계량 1→2→3→4→5: 압력·속도·위치·배압 / 흘림방지1: 압력·속도·위치. 표시 없는 배압은 입력할 수 없습니다."
             else "보압 3→2→1: 압력·속도·시간 / 사출 5→4→3→2→1: 압력·속도·시간·위치")
+        label("사출기 호기")
+        machine = MachineNoPicker(this, 23500).also { picker ->
+            body.addView(picker.spinner); editing.add(picker.spinner)
+            if (state == null) picker.restoreLast()
+        }
         actionRow("저장자료 조회" to { openHistory() }, "사진 촬영 추가" to {
             if (canEdit()) {
                 if (ContextCompat.checkSelfPermission(
@@ -749,6 +739,7 @@ class Cp3Activity : AppCompatActivity() {
         val absentKeys = absent.filterValues { it.isChecked }.keys
         try {
             require(user.isNotBlank()) { "다시 로그인하세요." }
+            require(machine.value != null) { "사출기 호기를 선택하세요." }
             require(confirmed.isChecked) { "입력값 확인에 체크하세요." }
             Cp3TableReader.validate(values, absentKeys,recordPage)
         } catch (e: Exception) {
@@ -767,12 +758,12 @@ class Cp3Activity : AppCompatActivity() {
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
         val data =
-            JSONObject().put("SCREEN", Cp3TableReader.NAME).put("MACHINE", Cp3TableReader.MACHINE)
+            JSONObject().put("SCREEN", Cp3TableReader.NAME).put("MACHINE", machine.value)
                 .put("SCREEN_TYPE",recordPage).put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields)
                 .put("NOT_DISPLAYED", JSONArray(absentKeys.toList())).toString()
         val draft = JSONObject().put("requestId", requestId).put("capturedAt", capturedAt)
             .put("values", JSONObject(values)).put("absent", JSONArray(absentKeys.toList()))
-            .put("photos", photosJson())
+            .put("photos", photosJson()).put("machineNo", machine.value)
         val savedRequestId = requestId
         val savedCapturedAt = capturedAt
         val draftText = draft.toString()
@@ -819,6 +810,7 @@ class Cp3Activity : AppCompatActivity() {
                     }
                 }
                 pending = false; saved = true
+                machine.remember()
                 CapturePendingArchive.removeSaved(
                     this@Cp3Activity,
                     "cp3_pending",
@@ -854,6 +846,7 @@ class Cp3Activity : AppCompatActivity() {
             startActivity(Intent(this, Cp3HistoryActivity::class.java).apply {
                 putExtra("empNo", this@Cp3Activity.intent.getStringExtra("empNo"))
                 putExtra("empName", this@Cp3Activity.intent.getStringExtra("empName"))
+                putExtra("screenType",recordPage)
                 if (id != null) putExtra("requestId", id)
             })
         }.onFailure { message("조회 화면을 열지 못했습니다. 저장자료 조회를 다시 누르세요.") }
@@ -900,6 +893,7 @@ class Cp3Activity : AppCompatActivity() {
             val draft = JSONObject(raw)
             restoring = true
             requestId = draft.getString("requestId"); capturedAt = draft.getString("capturedAt")
+            draft.optString("machineNo").takeIf { it.isNotBlank() }?.let { machine.value = it }
             val values = draft.getJSONObject("values")
             fields.forEach { (key, input) -> input.setText(values.optString(key)) }
             absent.values.forEach { it.isChecked = false }

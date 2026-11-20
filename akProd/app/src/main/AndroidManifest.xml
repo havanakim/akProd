@@ -29,6 +29,9 @@
             android:name=".Cp3Activity"
             android:exported="false" />
         <activity
+            android:name=".ColoredMeteringActivity"
+            android:exported="false" />
+        <activity
             android:name=".Cp3HistoryActivity"
             android:exported="false" />
         <activity

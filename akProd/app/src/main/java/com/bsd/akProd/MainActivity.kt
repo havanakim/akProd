@@ -28,8 +28,12 @@ class MainActivity : AppCompatActivity() {
             })
         }
         binding.btnCp3.setOnClickListener { open(Cp3Activity::class.java) }
+        binding.btnMeteringC.setOnClickListener { open(ColoredMeteringActivity::class.java) }
         binding.btnCp14.setOnClickListener { open(Cp14Activity::class.java) }
         binding.btnCp3History.setOnClickListener { open(Cp3HistoryActivity::class.java, true) }
+        binding.btnMeteringHistoryC.setOnClickListener {
+            open(Cp3HistoryActivity::class.java, true, Cp3TableReader.METERING)
+        }
         binding.btnCp14History.setOnClickListener { open(Cp14HistoryActivity::class.java, true) }
         binding.btnMetering.setOnClickListener {
             open(

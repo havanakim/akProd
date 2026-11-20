@@ -51,25 +51,6 @@
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
-
-        
-        
-
-        
-        
-
-        
-        
-
-        
-        
-
-        
-        
-
-        
-        
-
         <TextView
             android:id="@+id/menuRegisterTitle"
             android:layout_width="match_parent"
@@ -91,7 +72,7 @@
                 android:layout_height="60dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                app:backgroundTint="#0F766E"
+                app:backgroundTint="#1d9f96"
                 android:text="사출/보합(color)"
                 android:textAllCaps="false" />
             <com.google.android.material.button.MaterialButton
@@ -100,7 +81,7 @@
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="#B45309"
+                app:backgroundTint="#f37616"
                 android:text="사출/보합(mono)"
                 android:textAllCaps="false" />
         </LinearLayout>
@@ -117,7 +98,7 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             app:backgroundTint="#0F766E"
-            android:text="계량/배합(c)"
+            android:text="계량/흘림방지(c)"
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
@@ -151,7 +132,7 @@
                 android:layout_height="60dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                app:backgroundTint="#115E59"
+                app:backgroundTint="#1d9f96"
                 android:text="사출/보합(color)"
                 android:textAllCaps="false" />
             <com.google.android.material.button.MaterialButton
@@ -160,7 +141,7 @@
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="#92400E"
+                app:backgroundTint="#f37616"
                 android:text="사출/보합(mono)"
                 android:textAllCaps="false" />
         </LinearLayout>
@@ -177,7 +158,7 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             app:backgroundTint="#115E59"
-            android:text="계량/배합(c)"
+            android:text="계량/흘림방지(c)"
             android:textAllCaps="false" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnMeteringHistory"

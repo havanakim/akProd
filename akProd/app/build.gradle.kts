@@ -15,8 +15,8 @@ android {
         minSdk = 24
         targetSdk = 34
         testInstrumentationRunner = "com.bsd.akProd.MonoFullPhotoInstrumentation"
-        versionCode = 14
-        versionName = "1.3.3"
+        versionCode = 15
+        versionName = "1.3.4"
         mapOf("DB_IP" to "", "DB_PORT" to "1433", "DB_NAME" to "", "DB_USER" to "",
             "DB_PASSWORD" to "", "DB_CLASSES" to "net.sourceforge.jtds.jdbc.Driver",
             "DB_AUTH_NAME" to "JSAK_ERP").forEach { (key, fallback) ->

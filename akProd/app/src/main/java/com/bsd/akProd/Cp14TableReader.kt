@@ -274,7 +274,9 @@ object Cp14TableReader {
     fun matchesDisplay(key: String, shown: String): Boolean? =
         displayFormats[prefix(key)]?.matches(OcrNumericGlyphs.canonical(shown))
 
-    private val columnPairs =mapOf("IP" to "IV", "IV" to "IP", "HP" to "HT", "HT" to "HP")
+    // Rows printed in the same columns: a header OCR missed takes the column of its partner row
+    // (RV above a highlighted or cursor cell is often unread; BP sits right under it).
+    private val columnPairs = mapOf("IP" to "IV", "IV" to "IP", "HP" to "HT", "HT" to "HP", "RV" to "BP", "BP" to "RV")
 
     /**
      * A header OCR missed (e.g. IV4 between IV5 and IV3) is placed only from printed neighbours:

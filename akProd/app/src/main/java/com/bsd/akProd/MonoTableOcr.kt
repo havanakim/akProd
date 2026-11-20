@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.*
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -18,7 +21,9 @@ class MonoTableOcr(
     private val image: Bitmap,
     private val page: String,
     private val active: Set<String>,
-    private val context: Context? = null
+    private val context: Context? = null,
+    /** Pass names to leave out; only the regression check uses this to measure each pass. */
+    private val skip: Set<String> = emptySet()
 ) {
     val candidates = linkedMapOf<String, MutableMap<String, Pair<Cp14TableReader.Cell, Int>>>()
     val zeroCorrected = mutableSetOf<String>()
@@ -105,19 +110,36 @@ class MonoTableOcr(
             val now = android.os.SystemClock.elapsedRealtime()
             log.append("[시간] $name ${now - mark}ms\n"); mark = now
         }
-        runCatching { accept(LcdOcrPipeline.recognize(korean, image)) }
-        lap("원본 한글")
-        if (!alive() || wrongPage) return
-        val contrast = contrast(image)
-        try { runCatching { accept(LcdOcrPipeline.recognize(latin, contrast)) } } finally { contrast.recycle() }
-        lap("대비")
-        if (!alive()) return
-        val mask = yellowTextMask(image)
-        try { runCatching { accept(LcdOcrPipeline.recognize(latin, mask)) } } finally { mask.recycle() }
-        lap("노란 글자")
-        if (!alive()) return
+        // The 12MP contrast/mask bitmaps are built off the UI thread while the first OCR runs.
+        // Not children of the caller: a cancelled screen must not wait on them, and finally releases them.
+        val scope = CoroutineScope(Dispatchers.Default)
+        val contrastJob = if ("대비" !in skip) scope.async(Dispatchers.Default) { contrast(image) } else null
+        val maskJob = if ("노란 글자" !in skip) scope.async(Dispatchers.Default) { yellowTextMask(image) } else null
+        try {
+            if ("원본 한글" !in skip) runCatching { accept(LcdOcrPipeline.recognize(korean, image)) }
+            lap("원본 한글")
+            if (!alive() || wrongPage) return
+            contrastJob?.await()?.let { contrast ->
+                try { runCatching { accept(LcdOcrPipeline.recognize(latin, contrast)) } } finally { contrast.recycle() }
+            }
+            lap("대비")
+            if (!alive()) return
+            maskJob?.await()?.let { mask ->
+                try { runCatching { accept(LcdOcrPipeline.recognize(latin, mask)) } } finally { mask.recycle() }
+            }
+            lap("노란 글자")
+            if (!alive()) return
+        } finally {
+            // An early return must not leak a 12MP bitmap that is still being built: release it once ready.
+            val jobs = listOfNotNull(contrastJob, maskJob)
+            CoroutineScope(Dispatchers.Default).launch {
+                jobs.forEach { job -> runCatching { job.await() }.getOrNull()?.takeIf { !it.isRecycled }?.recycle() }
+            }
+        }
         LcdOcrPipeline.run(
-            image, latin, korean, shouldContinue = alive,
+            // Only CLAHE and Otsu: on the 6-photo regression the two directional-closing passes added
+            // no correct value and no rival (12 mismatches/0 wrong either way) but cost ~2s per photo.
+            image, latin, korean, modes = 2, shouldContinue = alive, skip = skip,
             accept = { text, w, h, roi, pass -> accept(text, w, h, roi, pass); lap("LCD $pass") },
             notice = { notices.add(it); log.append("[LCD 처리] $it\n") })
         // Read missing cells at larger scale. Headers determine the region; never fill missing cells with zero.

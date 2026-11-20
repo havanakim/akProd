@@ -14,12 +14,13 @@ class MonoFullPhotoInstrumentation: Instrumentation() {
     private var positions=false
     private var dump=false
     private var only:String?=null
+    private var skip=emptySet<String>()
     private var holding1119=false
     private var colored1119=false
     private var coloredInjection=false
-    override fun onCreate(arguments: Bundle?) { dump=arguments?.getString("dump")=="true"; only=arguments?.getString("only"); positions=arguments?.getString("positions")=="true"; holding1119=arguments?.getString("holding1119")=="true"; colored1119=arguments?.getString("colored1119")=="true"; coloredInjection=arguments?.getString("coloredInjection")=="true"; super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) { dump=arguments?.getString("dump")=="true"; only=arguments?.getString("only"); skip=arguments?.getString("skip")?.split(",")?.map { mapOf("k" to "원본 한글","c" to "대비","y" to "노란 글자","L1" to "CLAHE","L2" to "Otsu","L3" to "Otsu 방향별 closing","L4" to "적응형 방향별 closing")[it.trim()] ?: it.trim() }?.toSet() ?: emptySet(); positions=arguments?.getString("positions")=="true"; holding1119=arguments?.getString("holding1119")=="true"; colored1119=arguments?.getString("colored1119")=="true"; coloredInjection=arguments?.getString("coloredInjection")=="true"; super.onCreate(arguments); start() }
     override fun onStart() {
-        if(dump) { MonoWordDump.run(this,context,targetContext,only); return }
+        if(dump) { MonoWordDump.run(this,context,targetContext,only,skip); return }
         if(positions) { PositionPhotoCheck.run(this,context,targetContext); return }
         if(colored1119) { ColoredMeteringPhotoCheck.run(this,context,targetContext); return }
         if(coloredInjection) { ColoredMeteringPhotoCheck.run(this,context,targetContext,true); return }

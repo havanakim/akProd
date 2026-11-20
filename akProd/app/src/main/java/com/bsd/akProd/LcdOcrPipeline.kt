@@ -48,6 +48,7 @@ object LcdOcrPipeline {
         selected: Boolean = false,
         modes: Int = 4,
         targetHeight: Int = 120,
+        skip: Set<String> = emptySet(),
         shouldContinue: () -> Boolean = { true },
         accept: (Text, Int, Int, RectF, String) -> Unit,
         notice: (String) -> Unit
@@ -58,6 +59,7 @@ object LcdOcrPipeline {
         }
         val bounds = withContext(Dispatchers.Default) { roi(image, selected) }
         for (mode in 0 until modes.coerceIn(0, 4)) {
+            if (names[mode] in skip) continue
             if (!shouldContinue()) break
             coroutineContext.ensureActive()
             val bitmap = try {

@@ -17,7 +17,7 @@ import java.io.File
  * photo truth in assets/holding1120/truth.json. Never writes to DB.
  */
 object MonoWordDump {
-    fun run(runner: Instrumentation, assets: Context, target: Context, only: String? = null) {
+    fun run(runner: Instrumentation, assets: Context, target: Context, only: String? = null, skip: Set<String> = emptySet()) {
         val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val korean = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
         val report = JSONObject()
@@ -34,7 +34,7 @@ object MonoWordDump {
                     val image = if (rotation == 0) decoded else android.graphics.Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height,
                         android.graphics.Matrix().apply { postRotate(rotation.toFloat()) }, true).also { decoded.recycle() }
                     val ocr = MonoTableOcr(image, Cp14TableReader.INJECTION,
-                        Cp14TableReader.labelsFor(Cp14TableReader.INJECTION).keys)
+                        Cp14TableReader.labelsFor(Cp14TableReader.INJECTION).keys, skip = skip)
                     ocr.run(latin, korean)
                     val values = JSONObject()
                     val expected = truth.optJSONObject(name) ?: truth.getJSONObject(path.substringBefore("/") + "/*")

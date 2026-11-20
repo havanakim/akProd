@@ -25,9 +25,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
         super.onCreate(state)
         val format = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         to = state?.getString("to") ?: format.format(Date())
-        from = state?.getString("from") ?: format.format(
-            Calendar.getInstance().apply { add(Calendar.DATE, -7) }.time
-        )
+        from = state?.getString("from") ?: to
         page = state?.getInt("page") ?: 0
         selectedId =
             if (state != null) state.getString("selectedId") else intent.getStringExtra("requestId")

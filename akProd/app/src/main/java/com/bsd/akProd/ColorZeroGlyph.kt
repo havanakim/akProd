@@ -133,6 +133,26 @@ object ColorZeroGlyph {
     }
     private var debug: StringBuilder? = null
 
+    /**
+     * Dust or glare can bridge neighbouring digits into one box. The font is monospaced, so a box
+     * clearly wider than a normal digit is cut into equal digit-wide parts; null if that cannot match.
+     */
+    private fun splitJoined(glyphs: List<Box>, ink: BooleanArray, w: Int, digits: Int): List<Box>? {
+        val normal = glyphs.filter { (it.right - it.left + 1).toFloat() / (it.bottom - it.top + 1) in .35f..0.95f }
+        if (normal.isEmpty()) return null
+        val unit = normal.minOf { it.right - it.left + 1 } // a joined box is never the narrowest
+        val parts = glyphs.flatMap { b ->
+            val width = b.right - b.left + 1
+            val k = Math.round(width.toFloat() / unit).coerceIn(1, digits)
+            if (k == 1 || width < unit * 1.6f) listOf(b) else (0 until k).map { i ->
+                val l = b.left + width * i / k; val r = b.left + width * (i + 1) / k - 1
+                val ys = (b.top..b.bottom).filter { y -> (l..r).any { ink[y * w + it] } }
+                Box(l, r, ys.firstOrNull() ?: b.top, ys.lastOrNull() ?: b.bottom)
+            }
+        }
+        return parts.takeIf { it.size == digits }
+    }
+
     /** Per digit: true when the glyph is positively a dotted zero at this threshold. */
     private fun classify(w: Int, h: Int, gray: IntArray, threshold: Int, digits: Int): List<Boolean>? {
         val dark = BooleanArray(gray.size) { gray[it] <= threshold }
@@ -152,7 +172,8 @@ object ColorZeroGlyph {
             }
         }
         val tallest = boxes.maxOfOrNull { it.bottom - it.top + 1 } ?: return null
-        val glyphs = boxes.filter { it.bottom - it.top + 1 >= tallest * .7f && it.right - it.left >= 2 }
+        var glyphs = boxes.filter { it.bottom - it.top + 1 >= tallest * .7f && it.right - it.left >= 2 }
+        if (glyphs.size < digits) glyphs = splitJoined(glyphs, ink, w, digits) ?: glyphs
         debug?.append("boxes=$boxes glyphs=${glyphs.size}/$digits\n")
         if (glyphs.size != digits) return null
         val bg = gray.sorted()[gray.size * 9 / 10]

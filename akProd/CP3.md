@@ -20,7 +20,8 @@ PB 5호기와 CP_mono 메뉴를 함께 제공한다.
 | 사출 5, 사출 4, 사출 3, 사출 2, 사출 1 | 각각 압력(kgf/cm²), 속도(%), 시간(sec), 위치(mm) |
 
 키는 HOLD_3_PRESSURE, HOLD_3_SPEED, HOLD_3_TIME … INJECT_1_POSITION 형태다.
-설비는 MACHINE_CODE=CP3, SCREEN=CP_Colored로 구분한다.
+메뉴는 테이블(CP_Colored / CP_mono)로 구분한다. MACHINE_CODE와 VALUES_JSON의 "MACHINE"에는 등록 화면에서 고른 사출기 호기(C01~C16)를 넣는다.
+호기 선택 기능 이전 자료와 그 이전에 만든 미확인 임시저장 건은 메뉴 코드(CP3/CP14)가 들어 있다.
 사진 속 수치를 기본값으로 고정하지 않는다. 0은 유효한 측정값이다.
 첨부 사진의 보압 3/2 속도 칸처럼 실제로 표시가 없는 경우만 해당 항목의 '사진에서 표시 없음'을 체크한다.
 표시 없음은 NOT_DISPLAYED 배열로 저장하며 숫자 0과 구분한다. 다른 누락 항목은 확인·입력해야 저장할 수 있다.

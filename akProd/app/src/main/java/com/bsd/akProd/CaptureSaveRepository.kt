@@ -67,10 +67,13 @@ internal object CaptureSaveRepository {
                             ) else null
                         }
                     }
+                    // MACHINE_CODE holds the 사출기 호기 (C01~C16) chosen on the registration screen, the same
+                    // value as the JSON "MACHINE". A request drafted before the picker keeps the menu code.
+                    val machineCode = machineNo(json) ?: target.machine
                     if (existing != null) {
                         // Old hashes included photographs. An unchanged legacy request can be confirmed without resending them.
                         require(
-                            existing.user == user && existing.machine == target.machine && existing.json == json && existing.sameTime &&
+                            existing.user == user && existing.machine == machineCode && existing.json == json && existing.sameTime &&
                                     (existing.hash == hash || existing.photoCount > 0)
                         ) { "이미 등록된 요청의 내용이 다릅니다. 원래 입력으로 재확인하세요." }
                     } else {
@@ -82,10 +85,7 @@ internal object CaptureSaveRepository {
                         trace("request=$id INSERT template=" + insertSql.replace('\n', ' '))
                         trace("request=$id bind_count=6 json_chars=${json.length} json_utf8_bytes=${json.toByteArray(Charsets.UTF_8).size} values=redacted")
                         c.prepareStatement(insertSql).use { s ->
-                            s.queryTimeout = 20; s.setString(1, id); s.setString(
-                            2,
-                            target.machine
-                        ); s.setString(3, user)
+                            s.queryTimeout = 20; s.setString(1, id); s.setString(2, machineCode); s.setString(3, user)
                             s.setString(4, capturedAt); s.setString(5, json); s.setString(6, hash)
                             val started = System.nanoTime()
                             val rows = s.executeUpdate()
@@ -131,12 +131,12 @@ internal object CaptureSaveRepository {
             try {
                 fun bind(statement: java.sql.PreparedStatement) {
                     statement.queryTimeout = 30
-                    statement.setString(1, user); statement.setString(2, target.machine)
-                    ids.forEachIndexed { i, id -> statement.setString(3 + i, id) }
+                    statement.setString(1, user)
+                    ids.forEachIndexed { i, id -> statement.setString(2 + i, id) }
                 }
                 // Records hold values only; the former *_PHOTO tables were dropped from the database.
                 val removed = c.prepareStatement(
-                    "DELETE FROM $table WHERE USER_ID=? AND MACHINE_CODE=? AND REQUEST_ID IN ($marks)"
+                    "DELETE FROM $table WHERE USER_ID=? AND REQUEST_ID IN ($marks)"
                 ).use { bind(it); it.executeUpdate() }
                 c.commit()
                 removed
@@ -146,6 +146,10 @@ internal object CaptureSaveRepository {
             }
         }
     }
+
+    /** The 사출기 호기 (C01~C16) written by the registration screens into the stored JSON, if any. */
+    internal fun machineNo(json: String): String? =
+        Regex("\"MACHINE\"\\s*:\\s*\"(C(0[1-9]|1[0-6]))\"").find(json)?.groupValues?.get(1)
 
     internal fun digest(user: String, capturedAt: String, json: String): String {
         val digest = MessageDigest.getInstance("SHA-256")

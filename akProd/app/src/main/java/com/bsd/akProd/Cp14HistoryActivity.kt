@@ -124,7 +124,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     text = "해당 기간에 저장된 자료가 없습니다."
                 })
                 rows.take(20).forEach { row ->
-                    deletion.row(results, row.requestId, "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}") {
+                    deletion.row(results, row.requestId, (row.machineNo?.let { "$it · " } ?: "") + "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}") {
                         if (!busy) {
                             selectedId = row.requestId; detail(row.requestId)
                         }
@@ -169,7 +169,9 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     screenType == Cp14TableReader.METERING && record.summary.screenType == Cp14TableReader.MIRACON
                 check(screenType.isEmpty() || sameMenu) { "이 메뉴의 저장자료가 아닙니다." }
                 notice.text =
-                    Cp14TableReader.pageTitle(record.summary.screenType) + "\n${record.summary.capturedAt} · 작업자 ${record.summary.user}"
+                    Cp14TableReader.pageTitle(record.summary.screenType) + "\n" +
+                        (CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "") +
+                        "${record.summary.capturedAt} · 작업자 ${record.summary.user}"
                 val fields = JSONObject(record.json).getJSONObject("FIELDS")
                 val table = TableLayout(this@Cp14HistoryActivity)
                 val header = TableRow(this@Cp14HistoryActivity)

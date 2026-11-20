@@ -64,6 +64,7 @@ class Cp14Activity : AppCompatActivity() {
         else listOf(Cp14TableReader.INJECTION, Cp14TableReader.METERING)
     private var changingPage = false
     private lateinit var pageSelector: Spinner
+    private lateinit var machine: MachineNoPicker
     private lateinit var pageDescription: TextView
     private lateinit var headerChooser: Spinner
     private val groupViews = linkedMapOf<String, List<android.view.View>>()
@@ -115,6 +116,11 @@ class Cp14Activity : AppCompatActivity() {
             )
         }
         body.addView(pageSelector); editing.add(pageSelector)
+        label("사출기 호기")
+        machine = MachineNoPicker(this, 23500).also { picker ->
+            body.addView(picker.spinner); editing.add(picker.spinner)
+            if (state == null) picker.restoreLast()
+        }
         pageSelector.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
                 parent: AdapterView<*>?,
@@ -717,6 +723,7 @@ class Cp14Activity : AppCompatActivity() {
         val absentKeys = absent.filterValues { it.isChecked }.keys
         try {
             require(user.isNotBlank()) { "다시 로그인하세요." }
+            require(machine.value != null) { "사출기 호기를 선택하세요." }
             require(confirmed.isChecked) { "입력값 확인에 체크하세요." }
             Cp14TableReader.validatePage(values, recordPage)
         } catch (e: Exception) {
@@ -735,7 +742,7 @@ class Cp14Activity : AppCompatActivity() {
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
         val payload =
-            JSONObject().put("SCREEN", Cp14TableReader.NAME).put("MACHINE", Cp14TableReader.MACHINE)
+            JSONObject().put("SCREEN", Cp14TableReader.NAME).put("MACHINE", machine.value)
                 .put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields)
                 .put("NOT_DISPLAYED", JSONArray(absentKeys.toList())).toString()
         val data = if (recordPage == Cp14TableReader.LEGACY) payload else JSONObject(payload).put(
@@ -744,7 +751,7 @@ class Cp14Activity : AppCompatActivity() {
         ).toString()
         val draft = JSONObject().put("requestId", requestId).put("capturedAt", capturedAt)
             .put("values", JSONObject(values)).put("absent", JSONArray(absentKeys.toList()))
-            .put("photos", photosJson()).put("page", recordPage)
+            .put("photos", photosJson()).put("page", recordPage).put("machineNo", machine.value)
         val savedRequestId = requestId
         val savedCapturedAt = capturedAt
         val draftText = draft.toString()
@@ -791,6 +798,7 @@ class Cp14Activity : AppCompatActivity() {
                     }
                 }
                 pending = false; saved = true
+                machine.remember()
                 CapturePendingArchive.removeSaved(
                     this@Cp14Activity,
                     "cp14_pending",
@@ -876,6 +884,7 @@ class Cp14Activity : AppCompatActivity() {
             restoring = true
             requestId = draft.getString("requestId"); capturedAt = draft.getString("capturedAt")
             recordPage = draft.optString("page", Cp14TableReader.LEGACY)
+            draft.optString("machineNo").takeIf { it.isNotBlank() }?.let { machine.value = it }
             val values = draft.getJSONObject("values")
             fields.forEach { (key, input) -> input.setText(values.optString(key)) }
             absent.values.forEach { it.isChecked = false }

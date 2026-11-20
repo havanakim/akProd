@@ -96,6 +96,11 @@ object ColoredHmiOcr {
                 val tally=votes[key].orEmpty().filterKeys { candidate -> verified[key].orEmpty().none { ZeroCandidateAgreement.supersedes(it,candidate) } }
                 val sorted=tally.entries.sortedByDescending { it.value }
                 if(sorted.isEmpty()) return null
+                // All readings are one number seen with 0 or 8/9 at some places (50.0 x4 vs 58.0 x4 under a crack).
+                // Reading a real 8 as 0 is rare, so the all-zero variant wins when it was read at least twice and
+                // no less often than any rival.
+                val zeroVariant=sorted.firstOrNull { z -> sorted.all { it.key==z.key || ZeroCandidateAgreement.supersedes(z.key,it.key) } }
+                if(zeroVariant!=null && sorted.size>1 && zeroVariant.value>=2 && sorted.all { it.value<=zeroVariant.value }) return zeroVariant.key
                 // Readings that differ only where they say 0/8/9 (140 vs 148 vs 149: a crack or glare over the
                 // 0) mean that glyph was not read reliably. A zero misread as 8/9 is the common error, so votes
                 // may still pick the 0 there, but never an 8/9 against such a rival.

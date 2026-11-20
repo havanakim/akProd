@@ -134,8 +134,13 @@ internal object CaptureSaveRepository {
                     statement.setString(1, user); statement.setString(2, target.machine)
                     ids.forEachIndexed { i, id -> statement.setString(3 + i, id) }
                 }
-                // Photo rows reference the record (no cascade), so they go first.
-                c.prepareStatement(
+                // Photo rows reference the record (no cascade), so they go first. Values-only databases
+                // never had the photo table; then there is nothing to remove there.
+                val photoTable = c.createStatement().use { s ->
+                    s.queryTimeout = 10
+                    s.executeQuery("SELECT OBJECT_ID(N'dbo.${target.table}_PHOTO',N'U')").use { r -> r.next() && r.getObject(1) != null }
+                }
+                if (photoTable) c.prepareStatement(
                     "DELETE P FROM [dbo].[${target.table}_PHOTO] P INNER JOIN $table C ON C.REQUEST_ID=P.REQUEST_ID " +
                             "WHERE C.USER_ID=? AND C.MACHINE_CODE=? AND C.REQUEST_ID IN ($marks)"
                 ).use { bind(it); it.executeUpdate() }

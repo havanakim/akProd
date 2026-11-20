@@ -80,9 +80,12 @@ object ColoredHmiOcr {
                 val key="${stage}_${stageRows[index]}"
                 if(key !in labels || key in Cp3TableReader.disabledFor(page)) return
                 if(stageRows[index]=="POSITION" && !raw.contains('.')) return
-                val corrected=CaptureNumberCorrection.correct(image,region.left,region.top,region.right,region.bottom,raw)
+                // This font's zero is dotted (two walls, centre dot); its own shape check may turn an OCR 8/9 into 0.
+                val dotted=ColorZeroGlyph.correct(image,region.left,region.top,region.right,region.bottom,raw)
+                val corrected=dotted ?: CaptureNumberCorrection.correct(image,region.left,region.top,region.right,region.bottom,raw)
                 // Do not turn an OCR zero into an eight or nine because of panel moire.
-                val safe=corrected?.let { OcrNumericGlyphs.preserveColorDigits(raw,it) }
+                val safe=dotted ?: corrected?.let { OcrNumericGlyphs.preserveColorDigits(raw,it) }
+                if(dotted!=null) log.append("$key dotted-zero $raw->$dotted\n")
                 val numeric=Cp3TableReader.number(safe ?: raw) ?: return
                 if(safe!=null && safe!=raw) verified.getOrPut(key) { linkedSetOf() }.add(numeric)
                 if(raw.any { it in "89" } && (corrected!=null || CaptureNumberCorrection.needsSegmentReview(image,region.left,region.top,region.right,region.bottom,raw))) uncertain.getOrPut(key) { linkedSetOf() }.add(numeric)
@@ -142,7 +145,15 @@ object ColoredHmiOcr {
                         val numericElements=text.textBlocks.flatMap { it.lines }.flatMap { it.elements }.map { OcrNumericGlyphs.canonical(it.text.replace(',','.')) }.filter { Cp3TableReader.number(it)!=null }
                         val raw=OcrNumericGlyphs.canonical(text.text.replace(',','.')).let { if(Cp3TableReader.number(it)!=null) it else numericElements.singleOrNull() ?: return }
                         if(Cp3TableReader.number(raw)==null) return
-                        addVote(index,raw,cellRoi); log.append("$key cell-$pass=$raw\n")
+                        // The glyph check needs the digits' own box, not the bordered cell.
+                        val boxes=text.textBlocks.flatMap { it.lines }.flatMap { it.elements }
+                            .filter { Cp3TableReader.number(OcrNumericGlyphs.canonical(it.text.replace(',','.')))!=null }.mapNotNull { it.boundingBox }
+                        val glyphs=if(boxes.isEmpty()) cellRoi else RectF(
+                            cellRoi.left+(local.left+boxes.minOf { it.left }.toFloat()/w*local.width())*cellRoi.width(),
+                            cellRoi.top+(local.top+boxes.minOf { it.top }.toFloat()/h*local.height())*cellRoi.height(),
+                            cellRoi.left+(local.left+boxes.maxOf { it.right }.toFloat()/w*local.width())*cellRoi.width(),
+                            cellRoi.top+(local.top+boxes.maxOf { it.bottom }.toFloat()/h*local.height())*cellRoi.height())
+                        addVote(index,raw,glyphs); log.append("$key cell-$pass=$raw\n")
                     }
                     try {
                         cellRead(LcdOcrPipeline.recognize(latin,large),large.width,large.height,RectF(0f,0f,1f,1f),"original")
@@ -154,6 +165,14 @@ object ColoredHmiOcr {
                             } finally { rawLarge.recycle() }
                         }
                         LcdOcrPipeline.run(cell,latin,selected=true,modes=2,shouldContinue={ choice(key)==null },accept=::cellRead,notice={})
+                        // No reading at all: a lone "0" that ML Kit skipped is accepted only from its verified shape.
+                        val lone=votes[key].isNullOrEmpty() && stageRows[index] in setOf("PRESSURE","SPEED") && ColorZeroGlyph.loneZero(image,cellRoi)
+                        if(votes[key].isNullOrEmpty()) log.append("$key no-reading lone=$lone\n")
+                        if(lone) {
+                            votes.getOrPut(key) { linkedMapOf() }["0"]=2
+                            verified.getOrPut(key) { linkedSetOf() }.add("0"); regions[key]=cellRoi
+                            log.append("$key lone-dotted-zero\n")
+                        }
                     } finally { large.recycle(); cell.recycle(); if(rawCell!==cell) rawCell.recycle() }
                 }
                 stageRows.forEach { row -> val key="${stage}_$row"; choice(key)?.let { values[key]=it; if(it in uncertain[key].orEmpty() && it !in verified[key].orEmpty()) review.add(key) } }

@@ -1,18 +1,17 @@
 package com.bsd.akProd
 
 import android.app.Activity
-import android.content.Context
 import android.widget.ArrayAdapter
 import android.widget.Spinner
+import android.widget.Toast
 
 /**
- * 사출기 호기 (C01~C16) chooser for the CP registration screens. The last number used on this
- * device is offered again, since an operator usually registers one machine after another in turn.
+ * 사출기 호기 (C01~C16) chooser for the CP registration screens. There is deliberately no default:
+ * every new registration starts unselected so the operator must pick the machine before adding photos.
  */
 class MachineNoPicker(private val activity: Activity, viewId: Int) {
     companion object {
         val numbers = (1..16).map { "C%02d".format(it) }
-        private const val PREFS = "cp_machine_no"
     }
 
     val spinner = Spinner(activity).apply {
@@ -24,11 +23,15 @@ class MachineNoPicker(private val activity: Activity, viewId: Int) {
         get() = spinner.selectedItemPosition.takeIf { it > 0 }?.let { numbers[it - 1] }
         set(number) = spinner.setSelection(number?.let { numbers.indexOf(it) + 1 }?.takeIf { it > 0 } ?: 0)
 
-    fun restoreLast() {
-        value = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("last", null)
+    fun clear() {
+        value = null
     }
 
-    fun remember() {
-        value?.let { activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("last", it).apply() }
+    /** True when a machine is chosen; otherwise tells the operator and opens the list. */
+    fun ensureSelected(): Boolean {
+        if (value != null) return true
+        Toast.makeText(activity, "사출기 호기를 먼저 선택하세요.", Toast.LENGTH_LONG).show()
+        spinner.requestFocus(); spinner.performClick()
+        return false
     }
 }

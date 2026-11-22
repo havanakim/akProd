@@ -119,7 +119,6 @@ class Cp14Activity : AppCompatActivity() {
         label("사출기 호기")
         machine = MachineNoPicker(this, 23500).also { picker ->
             body.addView(picker.spinner); editing.add(picker.spinner)
-            if (state == null) picker.restoreLast()
         }
         pageSelector.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -136,7 +135,7 @@ class Cp14Activity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         actionRow("저장자료 조회" to { openHistory() }, "사진 촬영 추가" to {
-            if (canEdit()) {
+            if (canEdit() && machine.ensureSelected()) {
                 if (ContextCompat.checkSelfPermission(
                         this,
                         Manifest.permission.CAMERA
@@ -146,7 +145,7 @@ class Cp14Activity : AppCompatActivity() {
             }
         })
         actionRow(
-            "사진 선택 추가 (최대 5장)" to { if (canEdit()) gallery.launch("image/*") },
+            "사진 선택 추가 (최대 5장)" to { if (canEdit() && machine.ensureSelected()) gallery.launch("image/*") },
             "선택 사진 취소" to { cancelSelectedPhoto() })
         photoSelector = Spinner(this)
         body.addView(photoSelector)
@@ -801,7 +800,6 @@ class Cp14Activity : AppCompatActivity() {
                     }
                 }
                 pending = false; saved = true
-                machine.remember()
                 CapturePendingArchive.removeSaved(
                     this@Cp14Activity,
                     "cp14_pending",
@@ -915,6 +913,7 @@ class Cp14Activity : AppCompatActivity() {
         if (recordPage == Cp14TableReader.LEGACY) recordPage = Cp14TableReader.INJECTION
         restoring = true
         fields.values.forEach { it.setText(""); it.error = null }
+        machine.clear()
         absent.values.forEach { it.isChecked = false }
         photos.clear(); pending = false; saved = false; capturedAt = ""; cameraUri =
             null; requestId = UUID.randomUUID().toString()

@@ -174,17 +174,19 @@ open class Cp3Activity : AppCompatActivity() {
         }
         Cp3TableReader.stagesFor(recordPage).forEach { stage ->
             label(Cp3TableReader.stageName(stage), 20f)
+            val grid = FieldGrid(this, body)
             activeLabels().filterKeys { it.startsWith(stage + "_") }
                 .forEach { (key, title) ->
-                    label(title.substringAfter(" · "))
+                    val cell = grid.cell(title.substringAfter(" · "))
                     val input = EditText(this).apply {
                         id = 21000 + fields.size; isSingleLine = true
                         inputType =
                             android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                        hint = "인식값 또는 직접 입력"
+                        hint = "입력"; textSize = 15f; gravity = android.view.Gravity.CENTER
+                        contentDescription = title
                     }
-                    fields[key] = input; body.addView(input)
-                    if(key in disabledFields()) { input.isEnabled=false; input.hint="해당 없음 (표시 없음)" }
+                    fields[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2))
+                    if(key in disabledFields()) { input.isEnabled=false; input.hint="해당없음" }
                     else editing.add(input)
                     input.addTextChangedListener(object : TextWatcher {
                         override fun beforeTextChanged(
@@ -208,9 +210,10 @@ open class Cp3Activity : AppCompatActivity() {
                     })
                     if (key in Cp3TableReader.blankAllowed && key !in disabledFields()) {
                         val check = CheckBox(this).apply {
-                            id = 22000 + absent.size; text = "사진에서 표시 없음 (0과 다름)"
+                            id = 22000 + absent.size; text = "표시없음"; textSize = 12f
+                            contentDescription = "사진에서 표시 없음 (0과 다름)"
                         }
-                        absent[key] = check; body.addView(check); editing.add(check)
+                        absent[key] = check; cell.addView(check); editing.add(check)
                         check.setOnCheckedChangeListener { _, checked ->
                             if (checked) {
                                 input.setText(""); input.error = null

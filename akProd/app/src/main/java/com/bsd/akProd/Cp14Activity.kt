@@ -207,16 +207,18 @@ class Cp14Activity : AppCompatActivity() {
         (Cp14TableReader.stages + Cp14TableReader.miraconStages).forEach { stage ->
             val firstChild = body.childCount
             label(Cp14TableReader.stageName(stage), 20f)
+            val grid = FieldGrid(this, body)
             Cp14TableReader.labels.filterKeys { Cp14TableReader.prefix(it) == stage }
                 .forEach { (key, title) ->
-                    label(title)
+                    val cell = grid.cell(title.substringBefore(" · "))
                     val input = EditText(this).apply {
                         id = 21000 + fields.size; isSingleLine = true
                         inputType =
                             android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                        hint = "인식값 또는 직접 입력"
+                        hint = "입력"; textSize = 15f; gravity = android.view.Gravity.CENTER
+                        contentDescription = title
                     }
-                    fields[key] = input; body.addView(input); editing.add(input)
+                    fields[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2)); editing.add(input)
                     input.addTextChangedListener(object : TextWatcher {
                         override fun beforeTextChanged(
                             s: CharSequence?,
@@ -239,9 +241,10 @@ class Cp14Activity : AppCompatActivity() {
                     })
                     if (key in Cp14TableReader.blankAllowed) {
                         val check = CheckBox(this).apply {
-                            id = 22000 + absent.size; text = "사진에서 표시 없음 (0과 다름)"
+                            id = 22000 + absent.size; text = "표시없음"; textSize = 12f
+                            contentDescription = "사진에서 표시 없음 (0과 다름)"
                         }
-                        absent[key] = check; body.addView(check); editing.add(check)
+                        absent[key] = check; cell.addView(check); editing.add(check)
                         check.setOnCheckedChangeListener { _, checked ->
                             if (checked) {
                                 input.setText(""); input.error = null

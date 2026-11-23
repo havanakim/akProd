@@ -153,6 +153,14 @@ class CaptureSaveRepositoryTest {
         assertEquals("JSON2",CaptureSaveRepository.Part.METERING.column)
     }
 
+    @Test fun historyKeepsMonoAndColorApartByHmi() {
+        assertEquals("(JSON1 IS NOT NULL AND COALESCE(JSON_VALUE(JSON1,'$.HMI'),'C')='C')",
+            CaptureSaveRepository.Part.INJECTION.rowsFor(CaptureSaveRepository.HMI_COLOR))
+        assertEquals("(JSON2 IS NOT NULL AND COALESCE(JSON_VALUE(JSON2,'$.HMI'),'M')='M')",
+            CaptureSaveRepository.Part.METERING.rowsFor(CaptureSaveRepository.HMI_MONO))
+        assertThrows(IllegalArgumentException::class.java) { CaptureSaveRepository.Part.INJECTION.rowsFor("X' OR 1=1 --") }
+    }
+
     @Test fun requestIdMustBeASequenceNumber() {
         assertEquals(17L,CaptureSaveRepository.requestId("17"))
         assertThrows(IllegalArgumentException::class.java) {

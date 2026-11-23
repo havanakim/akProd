@@ -34,7 +34,7 @@ object Cp14Repository {
             connection.prepareStatement("""
                 SELECT REQUEST_ID,USER_ID,CONVERT(varchar(23),CAPTURED_AT,121) AS LOCAL_CAPTURED_AT,JSON_VALUE(${part.column},'$.SCREEN_TYPE') AS SCREEN_TYPE,PHOTO_COUNT,DEVICE_CODE,ROUND_NO
                 FROM [dbo].[${CaptureSaveRepository.TABLE}]
-                WHERE USER_ID=? AND ${part.rows} AND CAPTURED_AT>=CONVERT(datetime2,?,126) AND CAPTURED_AT<CONVERT(datetime2,?,126)
+                WHERE USER_ID=? AND ${part.rowsFor(CaptureSaveRepository.HMI_MONO)} AND CAPTURED_AT>=CONVERT(datetime2,?,126) AND CAPTURED_AT<CONVERT(datetime2,?,126)
                 ORDER BY CAPTURED_AT DESC,REQUEST_ID DESC OFFSET ? ROWS FETCH NEXT 21 ROWS ONLY
             """.trimIndent()).use { statement ->
                 statement.queryTimeout=30; statement.setString(1,user)
@@ -51,7 +51,7 @@ object Cp14Repository {
         return (DBHelper.getConnection() ?: error("DB 연결 실패")).use { connection ->
             connection.prepareStatement("""
                 SELECT REQUEST_ID,USER_ID,CONVERT(varchar(23),CAPTURED_AT,121) AS LOCAL_CAPTURED_AT,JSON_VALUE(${part.column},'$.SCREEN_TYPE') AS SCREEN_TYPE,PHOTO_COUNT,${part.column} AS VALUES_JSON
-                FROM [dbo].[${CaptureSaveRepository.TABLE}] WHERE REQUEST_ID=? AND USER_ID=? AND ${part.rows}
+                FROM [dbo].[${CaptureSaveRepository.TABLE}] WHERE REQUEST_ID=? AND USER_ID=? AND ${part.rowsFor(CaptureSaveRepository.HMI_MONO)}
             """.trimIndent()).use { statement ->
                 statement.queryTimeout=30; statement.setLong(1,CaptureSaveRepository.requestId(id)); statement.setString(2,user)
                 statement.executeQuery().use { rows ->

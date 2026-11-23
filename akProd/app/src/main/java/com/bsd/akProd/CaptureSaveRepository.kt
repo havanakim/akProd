@@ -18,6 +18,9 @@ import java.sql.SQLException
  */
 internal object CaptureSaveRepository {
     const val TABLE = "TB_PC_CONDITION"
+    /** JSON "HMI": the first item of every saved JSON, telling the color menus from the mono menus. */
+    const val HMI_COLOR = "C"
+    const val HMI_MONO = "M"
 
     enum class Target(val jsonColumn: String, val machine: String) {
         MONO("JSON1", Cp14TableReader.MACHINE),
@@ -32,6 +35,15 @@ internal object CaptureSaveRepository {
 
         /** Rows that hold this part's values. */
         val rows get() = "$column IS NOT NULL"
+
+        /**
+         * Rows that hold this part's values saved by the [hmi] menus ([HMI_COLOR] or [HMI_MONO]). JSON saved before
+         * "HMI" existed has none and is listed by both.
+         */
+        fun rowsFor(hmi: String): String {
+            require(hmi == HMI_COLOR || hmi == HMI_MONO)
+            return "($column IS NOT NULL AND COALESCE(JSON_VALUE($column,'$.HMI'),'$hmi')='$hmi')"
+        }
 
         /** Statements that remove this part: clear its column where the row keeps the other part, else delete the row. */
         val deletion get() = listOf(

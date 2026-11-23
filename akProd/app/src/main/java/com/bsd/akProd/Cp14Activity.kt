@@ -752,9 +752,8 @@ class Cp14Activity : AppCompatActivity() {
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
         val payload =
-            JSONObject().put("MACHINE", machine.value).put("ROUND", round.value)
-                .put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields)
-                .put("NOT_DISPLAYED", JSONArray(absentKeys.toList())).toString()
+            JSONObject().put("HMI", CaptureSaveRepository.HMI_MONO).put("MACHINE", machine.value).put("ROUND", round.value)
+                .put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields).toString()
         val data = if (recordPage == Cp14TableReader.LEGACY) payload else JSONObject(payload).put(
             "SCREEN_TYPE",
             recordPage

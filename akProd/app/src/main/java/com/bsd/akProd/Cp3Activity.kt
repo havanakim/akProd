@@ -767,14 +767,11 @@ open class Cp3Activity : AppCompatActivity() {
             )
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
-        // 사출/보압(color) (JSON1) is stored without SCREEN and NOT_DISPLAYED.
-        val hmiColor = recordPage == Cp3TableReader.INJECTION
+        // Both color menus (사출/보압 JSON1, 계량/흘림방지 JSON2): "HMI":"C" first, without SCREEN and NOT_DISPLAYED.
         val data = JSONObject().apply {
-            if (!hmiColor) put("SCREEN", Cp3TableReader.NAME)
-            put("MACHINE", machine.value).put("ROUND", round.value)
+            put("HMI", CaptureSaveRepository.HMI_COLOR).put("MACHINE", machine.value).put("ROUND", round.value)
             put("SCREEN_TYPE", recordPage)
             put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields)
-            if (!hmiColor) put("NOT_DISPLAYED", JSONArray(absentKeys.toList()))
         }.toString()
         val draft = JSONObject().put("requestId", requestId).put("capturedAt", capturedAt)
             .put("values", JSONObject(values)).put("absent", JSONArray(absentKeys.toList()))

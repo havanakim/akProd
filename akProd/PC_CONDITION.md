@@ -24,10 +24,11 @@ DB에는 [scripts/pc-condition-schema.sql](scripts/pc-condition-schema.sql)을 1
 - 한 행 = 하루 · 호기(DEVICE_CODE) · 차수(ROUND_NO). 저장할 때 메뉴와 관계없이 같은 날(CAPTURED_AT 날짜),
   같은 호기, 같은 차수의 행이 있는지 확인한다. 없을 때만 INSERT하고, 있으면 그 행의 메뉴 컬럼(JSON1 또는 JSON2)만
   UPDATE한다. 작업자·촬영시각·등록시각은 바꾸지 않는다. 컬럼은 화면이 아니라 메뉴로 정한다.
-- 모노와 컬러는 호기로 구분한다(한 호기는 모노 또는 컬러 화면 중 하나). JSON에는 `"SCREEN"`을 넣지 않는다.
-  단, CP3 계량·흘림방지(color)는 기존대로 `"SCREEN":"CP3호기"`를 넣는다.
-- CP3 사출/보압(color)은 `"NOT_DISPLAYED"`도 넣지 않는다.
-- JSON에는 `"MACHINE"`(호기), `"ROUND"`(차수), `"SCREEN_TYPE"`을 저장한다. SCREEN_TYPE은
+- 같은 날·호기·차수 행 찾기는 호기 기준이다(한 호기는 모노 또는 컬러 화면 중 하나). JSON에는 `"SCREEN"`을 넣지 않는다.
+- 저장자료 조회는 JSON의 `"HMI"`로 모노(`"M"`)와 컬러(`"C"`) 메뉴를 나눈다. `"HMI"`가 없는 예전 JSON은 양쪽 조회에 모두 나온다.
+- 모든 메뉴에서 `"NOT_DISPLAYED"`를 넣지 않는다. 표시 없음 항목은 FIELDS에 null로만 남는다.
+- JSON 맨 앞에 `"HMI"`(컬러 메뉴 `"C"`, 모노 메뉴 `"M"`)를 넣고, 이어서 `"MACHINE"`(호기), `"ROUND"`(차수),
+  `"SCREEN_TYPE"`을 저장한다. SCREEN_TYPE은
   사출/보압 `INJECTION_HOLDING`, 계량 `METERING_BACK_PRESSURE`, MIRACON-I `METERING_MIRACON`이다.
 - 한 메뉴 안의 여러 화면(CP_mono의 사출/보압·계량 S5~S1, 계량/배압(m)의 S5~S1·MIRACON-I)은 같은 컬럼이므로,
   같은 날·호기·차수에서는 나중에 저장한 화면이 앞의 값을 덮어쓴다.

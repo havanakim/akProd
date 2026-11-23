@@ -93,7 +93,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
             busy = true; notice.text = "${ids.size}건 삭제 중…"
             lifecycleScope.launch {
                 val message = try {
-                    val removed = withContext(Dispatchers.IO) { Cp14Repository.delete(user, ids) }
+                    val removed = withContext(Dispatchers.IO) { Cp14Repository.delete(user, ids, screenType) }
                     "${removed}건을 삭제했습니다."
                 } catch (e: Exception) {
                     e.message ?: "삭제 실패: DB 연결을 확인하세요."
@@ -165,14 +165,14 @@ class Cp14HistoryActivity : AppCompatActivity() {
         busy = true
         lifecycleScope.launch {
             try {
-                val record = withContext(Dispatchers.IO) { Cp14Repository.get(user, id) }
+                val record = withContext(Dispatchers.IO) { Cp14Repository.get(user, id, screenType) }
                 // The 계량/배압(m) menu holds both of its screens (S5~S1 and MIRACON-I).
                 val sameMenu = record.summary.screenType == screenType ||
                     screenType == Cp14TableReader.METERING && record.summary.screenType == Cp14TableReader.MIRACON
                 check(screenType.isEmpty() || sameMenu) { "이 메뉴의 저장자료가 아닙니다." }
                 notice.text =
                     Cp14TableReader.pageTitle(record.summary.screenType) + "\n" +
-                        (CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "") +
+                        (CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "") + (CaptureSaveRepository.roundNo(record.json)?.let { "${it}차 · " } ?: "") +
                         "${record.summary.capturedAt} · 작업자 ${record.summary.user}"
                 val fields = JSONObject(record.json).getJSONObject("FIELDS")
                 val table = TableLayout(this@Cp14HistoryActivity)

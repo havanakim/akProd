@@ -97,7 +97,7 @@ class Cp3HistoryActivity : AppCompatActivity() {
             busy=true; notice.text="${ids.size}건 삭제 중…"
             lifecycleScope.launch {
                 val message=try {
-                    val removed=withContext(Dispatchers.IO) { Cp3Repository.delete(user,ids) }
+                    val removed=withContext(Dispatchers.IO) { Cp3Repository.delete(user,ids,screenType) }
                     "${removed}건을 삭제했습니다."
                 } catch(e: Exception) { e.message ?: "삭제 실패: DB 연결을 확인하세요." }
                 busy=false; loadList(results,notice,message+"\n")
@@ -114,11 +114,11 @@ class Cp3HistoryActivity : AppCompatActivity() {
         busy=true
         lifecycleScope.launch {
             try {
-                val record=withContext(Dispatchers.IO) { Cp3Repository.get(user,id) }
-                notice.text=(CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "")+"${record.summary.capturedAt} · 작업자 ${record.summary.user}"
+                val record=withContext(Dispatchers.IO) { Cp3Repository.get(user,id,screenType) }
+                notice.text=(CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "") + (CaptureSaveRepository.roundNo(record.json)?.let { "${it}차 · " } ?: "")+"${record.summary.capturedAt} · 작업자 ${record.summary.user}"
                 val payload=JSONObject(record.json)
                 val fields=payload.getJSONObject("FIELDS")
-                val recordPage=payload.optString("SCREEN_TYPE",Cp3TableReader.INJECTION)
+                val recordPage=Cp3TableReader.pageOf(payload.optString("SCREEN_TYPE").ifBlank { null })
                 check((if(recordPage==Cp3TableReader.METERING) Cp3TableReader.METERING else Cp3TableReader.INJECTION)==screenType) { "선택한 메뉴의 등록 자료가 아닙니다." }
                 text(if(recordPage==Cp3TableReader.METERING) "계량·배압·흘림방지" else "사출·보압",14f)
                 val notDisplayed=JSONObject(record.json).optJSONArray("NOT_DISPLAYED")

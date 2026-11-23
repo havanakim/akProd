@@ -6,6 +6,8 @@ import kotlin.math.abs
 object Cp3TableReader {
     const val INJECTION="INJECTION_HOLDING"
     const val METERING="METERING_BACK_PRESSURE"
+    /** The screen page for a stored SCREEN_TYPE; a record without one is the 사출/보압 page. */
+    fun pageOf(stored: String?)=if(stored==METERING) METERING else INJECTION
     val meteringStages=listOf("SUCKBACK_1")+(1..5).map { "METER_$it" }
     val disabledMeteringFields=setOf("SUCKBACK_1_BACK_PRESSURE")
     val disabledInjectionFields=setOf("HOLD_3_SPEED","HOLD_2_SPEED","HOLD_3_POSITION","HOLD_2_POSITION","HOLD_1_POSITION")

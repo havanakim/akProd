@@ -65,6 +65,7 @@ class Cp14Activity : AppCompatActivity() {
     private var changingPage = false
     private lateinit var pageSelector: Spinner
     private lateinit var machine: MachineNoPicker
+    private lateinit var round: RoundNoPicker
     private lateinit var pageDescription: TextView
     private lateinit var headerChooser: Spinner
     private val groupViews = linkedMapOf<String, List<android.view.View>>()
@@ -116,9 +117,15 @@ class Cp14Activity : AppCompatActivity() {
             )
         }
         body.addView(pageSelector); editing.add(pageSelector)
-        label("사출기 호기")
+        label("사출기 호기 · 차수")
         machine = MachineNoPicker(this, 23500).also { picker ->
-            body.addView(picker.spinner); editing.add(picker.spinner)
+            round = RoundNoPicker(this, 23501)
+            body.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(picker.spinner, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(round.spinner, LinearLayout.LayoutParams(0, -2, 1f))
+            }, LinearLayout.LayoutParams(-1, -2))
+            editing.add(picker.spinner); editing.add(round.spinner)
         }
         pageSelector.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -135,7 +142,7 @@ class Cp14Activity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         actionRow("저장자료 조회" to { openHistory() }, "사진 촬영 추가" to {
-            if (canEdit() && machine.ensureSelected()) {
+            if (canEdit() && machine.ensureSelected() && round.ensureSelected()) {
                 if (ContextCompat.checkSelfPermission(
                         this,
                         Manifest.permission.CAMERA
@@ -145,7 +152,7 @@ class Cp14Activity : AppCompatActivity() {
             }
         })
         actionRow(
-            "사진 선택 추가 (최대 5장)" to { if (canEdit() && machine.ensureSelected()) gallery.launch("image/*") },
+            "사진 선택 추가 (최대 5장)" to { if (canEdit() && machine.ensureSelected() && round.ensureSelected()) gallery.launch("image/*") },
             "선택 사진 취소" to { cancelSelectedPhoto() })
         photoSelector = Spinner(this)
         body.addView(photoSelector)
@@ -257,11 +264,11 @@ class Cp14Activity : AppCompatActivity() {
         }
         confirmed = CheckBox(this).apply { id = 23000; text = "입력값을 확인했으며 빈 항목은 null로 등록합니다." }
         body.addView(confirmed); editing.add(confirmed)
-        button("서버 등록 / 동일 요청 재확인") { save() }
+        button("서버 등록") { save() }
         saveStatus = label("서버에는 수치만 등록합니다. 000·000.0은 숫자 0이며, 빈 항목은 null로 등록합니다.")
         button("새 등록 시작") {
             androidx.appcompat.app.AlertDialog.Builder(this).setTitle("새 등록")
-                .setMessage(if (pending) "미확인 요청의 사진과 입력값은 보관함에 남기고 새 등록을 시작합니다. 이전 건은 보관함에서 동일 요청으로 재확인할 수 있습니다." else "현재 사진과 입력값을 비우고 새 건을 시작합니다.")
+                .setMessage(if (pending) "미확인 요청의 사진과 입력값은 보관함에 남기고 새 등록을 시작합니다. 이전 건은 보관함에서 다시 열 수 있습니다. 저장자료 조회에서 저장 여부를 확인한 뒤 등록하세요." else "현재 사진과 입력값을 비우고 새 건을 시작합니다.")
                 .setPositiveButton("시작") { _, _ ->
                     CapturePendingArchive.archiveActive(
                         this,
@@ -300,7 +307,7 @@ class Cp14Activity : AppCompatActivity() {
         applyPage()
         updatePhotoSelector()
         status.text = when {
-            saved -> "등록 완료"; pending -> "등록 결과 재확인이 필요합니다. 같은 요청으로 재시도하세요."; else -> "사진 ${photos.size}장 · 인식값을 확인하세요."
+            saved -> "등록 완료"; pending -> "등록 결과를 확인하지 못했습니다. 저장자료 조회에서 확인한 뒤, 없을 때만 다시 등록하세요."; else -> "사진 ${photos.size}장 · 인식값을 확인하세요."
         }
     }
 
@@ -726,6 +733,7 @@ class Cp14Activity : AppCompatActivity() {
         try {
             require(user.isNotBlank()) { "다시 로그인하세요." }
             require(machine.value != null) { "사출기 호기를 선택하세요." }
+            require(round.value != null) { "차수를 선택하세요." }
             require(confirmed.isChecked) { "입력값 확인에 체크하세요." }
             Cp14TableReader.validatePage(values, recordPage)
         } catch (e: Exception) {
@@ -744,7 +752,7 @@ class Cp14Activity : AppCompatActivity() {
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
         val payload =
-            JSONObject().put("SCREEN", Cp14TableReader.NAME).put("MACHINE", machine.value)
+            JSONObject().put("MACHINE", machine.value).put("ROUND", round.value)
                 .put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields)
                 .put("NOT_DISPLAYED", JSONArray(absentKeys.toList())).toString()
         val data = if (recordPage == Cp14TableReader.LEGACY) payload else JSONObject(payload).put(
@@ -753,7 +761,7 @@ class Cp14Activity : AppCompatActivity() {
         ).toString()
         val draft = JSONObject().put("requestId", requestId).put("capturedAt", capturedAt)
             .put("values", JSONObject(values)).put("absent", JSONArray(absentKeys.toList()))
-            .put("photos", photosJson()).put("page", recordPage).put("machineNo", machine.value)
+            .put("photos", photosJson()).put("page", recordPage).put("machineNo", machine.value).put("roundNo", round.value)
         val savedRequestId = requestId
         val savedCapturedAt = capturedAt
         val draftText = draft.toString()
@@ -774,12 +782,13 @@ class Cp14Activity : AppCompatActivity() {
                     error("등록 준비 정보를 저장하지 못했습니다. 기기 저장공간을 확인하세요.")
                 }
                 val task = CaptureSaveWorker.submit("Cp14:" + savedRequestId) { task ->
-                    Cp14Repository.save(
+                    task.savedId.set(Cp14Repository.save(
+                        meteringMenu,
                         savedRequestId,
                         user,
                         savedCapturedAt,
                         data
-                    ) { task.phase.set(it) }
+                    ) { task.phase.set(it) }.toString())
                 }
                 work = task
                 timer = launch {
@@ -806,22 +815,22 @@ class Cp14Activity : AppCompatActivity() {
                     pendingKey,
                     savedRequestId
                 )
-                status.text = "CP_mono 수치 등록 완료"
+                status.text = "CP_mono 수치 등록 완료 · 요청 번호 ${work?.savedId?.get().orEmpty()}"
                 saveStatus.text = status.text
                 message("등록 완료")
-                openHistory(savedRequestId)
+                openHistory(work?.savedId?.get())
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
                 work?.allowRetry()
                 saveStatus.text = "35초 안에 저장 응답을 받지 못했습니다.\n마지막 단계: ${
                     work?.phase?.get().orEmpty()
-                }\n요청: $savedRequestId\n서버에서 처리 중일 수 있습니다. 사진과 입력은 보관했습니다. 동일 요청 재확인 또는 저장자료 조회를 이용하세요."
+                }\n요청: $savedRequestId\n서버에서 처리 중이거나 이미 저장됐을 수 있습니다. 사진과 입력은 보관했습니다. 다시 등록하면 중복 저장되므로 저장자료 조회에서 먼저 확인하세요."
                 status.text = saveStatus.text
                 message("저장 응답 지연. 등록 버튼 아래의 마지막 단계를 확인하세요.")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 saveStatus.text =
-                    "등록 결과를 확인하지 못했습니다.\n${e.message ?: "DB 오류"}\n요청: $savedRequestId\n입력은 보관했습니다. 같은 요청으로 재확인하세요."
+                    "등록 결과를 확인하지 못했습니다.\n${e.message ?: "DB 오류"}\n요청: $savedRequestId\n입력은 보관했습니다. 저장자료 조회에서 확인한 뒤 다시 등록하세요."
                 status.text = saveStatus.text
                 message("저장 확인 실패. 등록 버튼 아래의 오류 내용을 확인하세요.")
             } finally {
@@ -860,7 +869,7 @@ class Cp14Activity : AppCompatActivity() {
                         reset(); restorePendingDraft(); updatePhotoSelector()
                         applyPage()
                         setBusy(false)
-                        status.text = "보관된 요청을 열었습니다. 동일 요청 재확인으로 저장 결과를 확인하세요."
+                        status.text = "보관된 요청을 열었습니다. 저장자료 조회에서 저장 여부를 확인한 뒤, 없을 때만 다시 등록하세요."
                     }.setNegativeButton("취소", null).show()
             }.setNegativeButton("닫기", null).show()
     }
@@ -886,6 +895,7 @@ class Cp14Activity : AppCompatActivity() {
             requestId = draft.getString("requestId"); capturedAt = draft.getString("capturedAt")
             recordPage = draft.optString("page", Cp14TableReader.LEGACY)
             draft.optString("machineNo").takeIf { it.isNotBlank() }?.let { machine.value = it }
+            draft.optInt("roundNo", 0).takeIf { it > 0 }?.let { round.value = it }
             val values = draft.getJSONObject("values")
             fields.forEach { (key, input) -> input.setText(values.optString(key)) }
             absent.values.forEach { it.isChecked = false }
@@ -913,7 +923,7 @@ class Cp14Activity : AppCompatActivity() {
         if (recordPage == Cp14TableReader.LEGACY) recordPage = Cp14TableReader.INJECTION
         restoring = true
         fields.values.forEach { it.setText(""); it.error = null }
-        machine.clear()
+        machine.clear(); round.clear()
         absent.values.forEach { it.isChecked = false }
         photos.clear(); pending = false; saved = false; capturedAt = ""; cameraUri =
             null; requestId = UUID.randomUUID().toString()

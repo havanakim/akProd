@@ -1,5 +1,7 @@
 # CP_Colored · 사출/보압 수치 등록
 
+> 저장 테이블은 [TB_PC_CONDITION](PC_CONDITION.md)으로 통합되었다. 아래의 CP_mono/CP_Colored 테이블 설명은 통합 이전 기록이다.
+
 > 2026-11-17: 신규 사진 저장을 제거했습니다. 사진은 OCR에만 사용하며 사진 없이 수동 등록도 가능합니다. 기존 DB는 scripts/cp-values-only.sql 적용이 필요합니다. 배포 안내: CP_VALUES_ONLY.md.
 
 

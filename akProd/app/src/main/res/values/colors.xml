@@ -30,4 +30,7 @@
     <color name="selected_color">#E0E0E0</color> <!-- 선택되었을 때 (연한 회색) -->
     <color name="pressed_color">#BDBDBD</color>  <!-- 손가락으로 누르고 있을 때 (조금 더 진한 회색) -->
     <color name="Azure">#F0FFFF</color>
+    <!-- 모노 메뉴 버튼 (사출/보압(mono), 계량/배압(m)) -->
+    <color name="mono_gray">#6B7280</color>
+    <color name="mono_gray_dark">#4B5563</color>
 </resources>

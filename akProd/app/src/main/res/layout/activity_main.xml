@@ -81,7 +81,7 @@
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="#f37616"
+                app:backgroundTint="@color/mono_gray"
                 android:text="사출/보합(mono)"
                 android:textAllCaps="false" />
         </LinearLayout>
@@ -107,7 +107,7 @@
             android:layout_width="0dp"
             android:layout_height="60dp"
             android:layout_weight="1"
-            app:backgroundTint="#B45309"
+            app:backgroundTint="@color/mono_gray_dark"
             android:text="계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
@@ -141,7 +141,7 @@
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="#f37616"
+                app:backgroundTint="@color/mono_gray"
                 android:text="사출/보합(mono)"
                 android:textAllCaps="false" />
         </LinearLayout>
@@ -166,7 +166,7 @@
             android:layout_width="0dp"
             android:layout_height="60dp"
             android:layout_weight="1"
-            app:backgroundTint="#B45309"
+            app:backgroundTint="@color/mono_gray_dark"
             android:text="계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>

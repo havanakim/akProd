@@ -45,11 +45,17 @@ internal object CaptureSaveRepository {
             return "($column IS NOT NULL AND COALESCE(JSON_VALUE($column,'$.HMI'),'$hmi')='$hmi')"
         }
 
-        /** Statements that remove this part: clear its column where the row keeps the other part, else delete the row. */
-        val deletion get() = listOf(
-            "UPDATE [dbo].[$TABLE] SET $column=NULL WHERE $column IS NOT NULL AND $other IS NOT NULL",
-            "DELETE FROM [dbo].[$TABLE] WHERE $column IS NOT NULL AND $other IS NULL"
-        )
+        /**
+         * Statements that remove this part of the [hmi] menu: where the row also holds the other JSON column, only
+         * this column is set to NULL; where this column is the row's only JSON, the row is deleted. The UPDATE runs
+         * first, so a row never ends with both JSON1 and JSON2 NULL.
+         */
+        fun deletion(hmi: String) = rowsFor(hmi).let { mine ->
+            listOf(
+                "UPDATE [dbo].[$TABLE] SET $column=NULL WHERE $mine AND $other IS NOT NULL",
+                "DELETE FROM [dbo].[$TABLE] WHERE $mine AND $other IS NULL"
+            )
+        }
     }
 
     /**
@@ -177,11 +183,11 @@ internal object CaptureSaveRepository {
     }
 
     /**
-     * Removes [part]'s values from the user's own selected records in one transaction: a row that also holds
+     * Removes the [hmi] menu's [part] values from the user's own selected records in one transaction: a row that also holds
      * the other screen keeps it, otherwise the row is deleted. Nothing changes if any statement fails.
      * Returns how many records were changed.
      */
-    fun delete(part: Part, user: String, ids: Collection<String>): Int {
+    fun delete(part: Part, hmi: String, user: String, ids: Collection<String>): Int {
         require(user.isNotBlank()) { "다시 로그인하세요." }
         require(ids.isNotEmpty() && ids.size <= 100) { "삭제할 자료를 1~100건 선택하세요." }
         val numbers = ids.map { requestId(it) }
@@ -189,7 +195,7 @@ internal object CaptureSaveRepository {
         return DBHelper.getConnection().use { c ->
             c.autoCommit = false
             try {
-                val removed = part.deletion.sumOf { sql ->
+                val removed = part.deletion(hmi).sumOf { sql ->
                     c.prepareStatement("$sql AND USER_ID=? AND REQUEST_ID IN ($marks)").use { s ->
                         s.queryTimeout = 30
                         s.setString(1, user)

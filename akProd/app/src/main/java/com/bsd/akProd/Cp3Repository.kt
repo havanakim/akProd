@@ -45,7 +45,7 @@ object Cp3Repository {
      */
     fun delete(user: String, ids: Collection<String>, screenType: String): Int {
         val part = partOf(screenType)
-        return CaptureSaveRepository.delete(part, user, ids)
+        return CaptureSaveRepository.delete(part, CaptureSaveRepository.HMI_COLOR, user, ids)
     }
 
     fun search(user: String, from: String, toExclusive: String, offset: Int, screenType: String = Cp3TableReader.INJECTION): List<Summary> {

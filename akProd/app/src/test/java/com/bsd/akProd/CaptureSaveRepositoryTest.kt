@@ -141,14 +141,16 @@ class CaptureSaveRepositoryTest {
     }
 
     @Test fun deletingOneMenuKeepsTheOtherMenuOfTheRow() {
+        val colorInjection="(JSON1 IS NOT NULL AND COALESCE(JSON_VALUE(JSON1,'$.HMI'),'C')='C')"
         assertEquals(listOf(
-            "UPDATE [dbo].[TB_PC_CONDITION] SET JSON1=NULL WHERE JSON1 IS NOT NULL AND JSON2 IS NOT NULL",
-            "DELETE FROM [dbo].[TB_PC_CONDITION] WHERE JSON1 IS NOT NULL AND JSON2 IS NULL"
-        ),CaptureSaveRepository.Part.INJECTION.deletion)
+            "UPDATE [dbo].[TB_PC_CONDITION] SET JSON1=NULL WHERE $colorInjection AND JSON2 IS NOT NULL",
+            "DELETE FROM [dbo].[TB_PC_CONDITION] WHERE $colorInjection AND JSON2 IS NULL"
+        ),CaptureSaveRepository.Part.INJECTION.deletion(CaptureSaveRepository.HMI_COLOR))
+        val monoMetering="(JSON2 IS NOT NULL AND COALESCE(JSON_VALUE(JSON2,'$.HMI'),'M')='M')"
         assertEquals(listOf(
-            "UPDATE [dbo].[TB_PC_CONDITION] SET JSON2=NULL WHERE JSON2 IS NOT NULL AND JSON1 IS NOT NULL",
-            "DELETE FROM [dbo].[TB_PC_CONDITION] WHERE JSON2 IS NOT NULL AND JSON1 IS NULL"
-        ),CaptureSaveRepository.Part.METERING.deletion)
+            "UPDATE [dbo].[TB_PC_CONDITION] SET JSON2=NULL WHERE $monoMetering AND JSON1 IS NOT NULL",
+            "DELETE FROM [dbo].[TB_PC_CONDITION] WHERE $monoMetering AND JSON1 IS NULL"
+        ),CaptureSaveRepository.Part.METERING.deletion(CaptureSaveRepository.HMI_MONO))
         assertEquals("JSON1 IS NOT NULL",CaptureSaveRepository.Part.INJECTION.rows)
         assertEquals("JSON2",CaptureSaveRepository.Part.METERING.column)
     }

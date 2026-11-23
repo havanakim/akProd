@@ -25,7 +25,7 @@ object Cp14Repository {
 
     /** Removes the history's screen values from the user's selected records; returns the number changed. */
     fun delete(user: String,ids: Collection<String>,screenType: String): Int =
-        CaptureSaveRepository.delete(partOf(screenType),user,ids)
+        CaptureSaveRepository.delete(partOf(screenType),CaptureSaveRepository.HMI_MONO,user,ids)
 
     fun search(user: String,from: String,toExclusive: String,offset: Int,screenType: String=""): List<Summary> {
         require(user.isNotBlank() && offset>=0)

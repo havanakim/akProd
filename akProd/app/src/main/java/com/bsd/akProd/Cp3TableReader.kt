@@ -29,6 +29,21 @@ object Cp3TableReader {
         } }
     }
     val blankAllowed = setOf("HOLD_3_SPEED", "HOLD_2_SPEED")
+
+    /** Saved JSON FIELDS name for each 사출 row: INJECT_5_PRESSURE → IP5, _SPEED → IV, _TIME → IT, _POSITION → IF. */
+    private val storedInjectRows = mapOf("PRESSURE" to "IP", "SPEED" to "IV", "TIME" to "IT", "POSITION" to "IF")
+    private val injectKey = Regex("INJECT_([1-5])_(PRESSURE|SPEED|TIME|POSITION)")
+    private val storedInjectKey = Regex("(IP|IV|IT|IF)([1-5])")
+
+    /** The FIELDS name saved for an internal [key]; keys other than 사출 1~5 are saved as they are. */
+    fun storedKey(key: String): String =
+        injectKey.matchEntire(key)?.let { m -> storedInjectRows.getValue(m.groupValues[2]) + m.groupValues[1] } ?: key
+
+    /** The internal key for a saved FIELDS name (the reverse of [storedKey]). */
+    fun internalKey(stored: String): String =
+        storedInjectKey.matchEntire(stored)?.let { m ->
+            "INJECT_${m.groupValues[2]}_" + storedInjectRows.entries.first { it.value == m.groupValues[1] }.key
+        } ?: stored
     fun stageName(stage: String) = (if(stage.startsWith("SUCKBACK")) "흘림방지" else if(stage.startsWith("METER")) "계량 " else if(stage.startsWith("HOLD")) "보압 " else "사출 ")+stage.substringAfterLast('_')
     data class Word(val text: String,val left: Float,val top: Float,val right: Float,val bottom: Float) {
         val x get()=(left+right)/2

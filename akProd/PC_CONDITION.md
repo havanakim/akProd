@@ -27,6 +27,9 @@ DB에는 [scripts/pc-condition-schema.sql](scripts/pc-condition-schema.sql)을 1
 - 같은 날·호기·차수 행 찾기는 호기 기준이다(한 호기는 모노 또는 컬러 화면 중 하나). JSON에는 `"SCREEN"`을 넣지 않는다.
 - 저장자료 조회는 JSON의 `"HMI"`로 모노(`"M"`)와 컬러(`"C"`) 메뉴를 나눈다. `"HMI"`가 없는 예전 JSON은 양쪽 조회에 모두 나온다.
 - 모든 메뉴에서 `"NOT_DISPLAYED"`를 넣지 않는다. 표시 없음 항목은 FIELDS에 null로만 남는다.
+- 사출/보압(color)의 FIELDS에서 사출 1~5단 항목은 짧은 이름으로 저장한다: `INJECT_n_PRESSURE`→`IPn`,
+  `_SPEED`→`IVn`, `_TIME`→`ITn`, `_POSITION`→`IFn` (예: `IP5`). 보압(`HOLD_…`) 항목은 그대로이고,
+  이전에 저장된 `INJECT_…` 이름도 조회 화면에서 그대로 읽는다.
 - JSON 맨 앞에 `"HMI"`(컬러 메뉴 `"C"`, 모노 메뉴 `"M"`)를 넣고, 이어서 `"MACHINE"`(호기), `"ROUND"`(차수),
   `"SCREEN_TYPE"`을 저장한다. SCREEN_TYPE은
   사출/보압 `INJECTION_HOLDING`, 계량 `METERING_BACK_PRESSURE`, MIRACON-I `METERING_MIRACON`이다.

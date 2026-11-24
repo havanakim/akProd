@@ -765,7 +765,8 @@ open class Cp3Activity : AppCompatActivity() {
                 absentKeys,
                 Cp3TableReader::number
             )
-                .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
+                // 사출 1~5 are saved as IP/IV/IT/IF + stage (e.g. INJECT_5_PRESSURE → IP5).
+                .forEach { (key, value) -> put(Cp3TableReader.storedKey(key), value ?: JSONObject.NULL) }
         }
         // Both color menus (사출/보압 JSON1, 계량/흘림방지 JSON2): "HMI":"C" first, without SCREEN and NOT_DISPLAYED.
         val data = JSONObject().apply {

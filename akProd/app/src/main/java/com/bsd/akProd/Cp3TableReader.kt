@@ -30,20 +30,28 @@ object Cp3TableReader {
     }
     val blankAllowed = setOf("HOLD_3_SPEED", "HOLD_2_SPEED")
 
-    /** Saved JSON FIELDS name for each 사출 row: INJECT_5_PRESSURE → IP5, _SPEED → IV, _TIME → IT, _POSITION → IF. */
-    private val storedInjectRows = mapOf("PRESSURE" to "IP", "SPEED" to "IV", "TIME" to "IT", "POSITION" to "IF")
-    private val injectKey = Regex("INJECT_([1-5])_(PRESSURE|SPEED|TIME|POSITION)")
-    private val storedInjectKey = Regex("(IP|IV|IT|IF)([1-5])")
+    /**
+     * Saved JSON FIELDS names, by stage prefix and row; the stage number follows the name.
+     * 사출: INJECT_5_PRESSURE → IP5, _SPEED → IV, _TIME → IT, _POSITION → IF.
+     * 계량: METER_1_PRESSURE → RP1, _SPEED → RV, _POSITION → S, _BACK_PRESSURE → BP.
+     * 보압 (HOLD_…) and 흘림방지 (SUCKBACK_…) keep their internal names.
+     */
+    private val storedRowNames = mapOf(
+        "INJECT" to mapOf("PRESSURE" to "IP", "SPEED" to "IV", "TIME" to "IT", "POSITION" to "IF"),
+        "METER" to mapOf("PRESSURE" to "RP", "SPEED" to "RV", "POSITION" to "S", "BACK_PRESSURE" to "BP")
+    )
+    private val storedNames: Map<String, String> = buildMap {
+        storedRowNames.forEach { (prefix, rows) ->
+            for (n in 1..5) rows.forEach { (row, name) -> put("${prefix}_${n}_$row", "$name$n") }
+        }
+    }
+    private val internalNames = storedNames.entries.associate { (key, name) -> name to key }
 
-    /** The FIELDS name saved for an internal [key]; keys other than 사출 1~5 are saved as they are. */
-    fun storedKey(key: String): String =
-        injectKey.matchEntire(key)?.let { m -> storedInjectRows.getValue(m.groupValues[2]) + m.groupValues[1] } ?: key
+    /** The FIELDS name saved for an internal [key]; keys without a short name are saved as they are. */
+    fun storedKey(key: String): String = storedNames[key] ?: key
 
     /** The internal key for a saved FIELDS name (the reverse of [storedKey]). */
-    fun internalKey(stored: String): String =
-        storedInjectKey.matchEntire(stored)?.let { m ->
-            "INJECT_${m.groupValues[2]}_" + storedInjectRows.entries.first { it.value == m.groupValues[1] }.key
-        } ?: stored
+    fun internalKey(stored: String): String = internalNames[stored] ?: stored
     fun stageName(stage: String) = (if(stage.startsWith("SUCKBACK")) "흘림방지" else if(stage.startsWith("METER")) "계량 " else if(stage.startsWith("HOLD")) "보압 " else "사출 ")+stage.substringAfterLast('_')
     data class Word(val text: String,val left: Float,val top: Float,val right: Float,val bottom: Float) {
         val x get()=(left+right)/2

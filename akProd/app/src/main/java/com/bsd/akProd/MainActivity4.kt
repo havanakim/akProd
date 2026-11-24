@@ -37,7 +37,7 @@ class MainActivity4 : AppCompatActivity() {
                 try {
                     val name = withContext(Dispatchers.IO) {
                         DBHelper.openConnection(BuildConfig.DB_AUTH_NAME).use { connection ->
-                            connection.prepareStatement("SELECT NAME, RIGHT(hand_tel_no,4) AS PW FROM HAA010T WHERE EMP_NO=?")
+                            connection.prepareStatement("SELECT NAME, RIGHT(hand_tel_no,4) AS PW FROM JSAK_ERP.DBO.HAA010T WHERE EMP_NO=?")
                                 .use { statement ->
                                     statement.queryTimeout = 15
                                     statement.setString(1, user)

@@ -138,7 +138,10 @@ class Cp3HistoryActivity : AppCompatActivity() {
                         val key="${stage}_$row"
                         // Saved as IP5 etc. since the rename; records saved before keep INJECT_5_PRESSURE etc.
                         val saved=Cp3TableReader.storedKey(key).takeIf { fields.has(it) } ?: key
-                        values.addView(cell(if(key !in Cp3TableReader.labelsFor(recordPage) || fields.isNull(saved) || key in absent) "—" else fields.optString(saved,"—")))
+                        val value=if(key !in Cp3TableReader.labelsFor(recordPage) || fields.isNull(saved) || key in absent) "—" else fields.optString(saved,"—")
+                        // 사출·계량 cells show their saved name above the value (IP5, RP1 ...), as the mono history does.
+                        val name=Cp3TableReader.storedKey(key).takeIf { it!=key && key in Cp3TableReader.labelsFor(recordPage) }
+                        values.addView(cell(if(name!=null) "$name\n$value" else value))
                     }
                     table.addView(values)
                 }

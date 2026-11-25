@@ -1,9 +1,0 @@
-<resources>
-    <string name="app_name">Encryption</string>
-    <string name="port">1433</string>
-    <string name="Classes">net.sourceforge.jtds.jdbc.Driver</string>
-    <string name="database">WMS_IF_TEST</string>
-    <string name="username">sa</string>
-    <string name="password">ak-erp@2016</string>
-    <string name="ip">10.51.0.235</string>
-</resources>

@@ -38,6 +38,7 @@
                 android:text="@string/title_1"
                 android:textAppearance="?attr/textAppearanceHeadlineMedium"
                 android:textColor="?attr/colorOnSurface"
+                android:textSize="26dp"
                 android:textStyle="bold" />
 
             <!-- 사번 -->

@@ -51,19 +51,30 @@ class Cp14HistoryActivity : AppCompatActivity() {
         if (selectedId != null) detail(selectedId!!) else list()
     }
 
+    /** PB 조회 screens use less vertical space: tight padding, smaller headings, compact bars and rows. */
+    private val compact get() = pbMenu
+
     private fun text(value: String, size: Float = 16f) =
-        TextView(this).apply { text = value; textSize = size; body.addView(this) }
+        TextView(this).apply {
+            text = value; textSize = size; body.addView(this)
+            if (compact) includeFontPadding = false
+        }
 
     private fun list() {
-        body.setPadding(20, 20, 20, 20)
+        if (compact) body.setPadding(dp(8), dp(4), dp(8), dp(2)) else body.setPadding(20, 20, 20, 20)
         selectedId = null
         body.removeAllViews()
-        text("$menuTitle · 내 저장자료", 22f)
-        text("${intent.getStringExtra("empName").orEmpty()} · $user")
-        text("촬영/불러오기 현지시각 기준 · 한 페이지 20건")
-        val (start, end) = HistoryFilterBar.dates(this, body, from, to)
+        if (compact) {
+            text("$menuTitle · 내 저장자료", 18f).setTypeface(null, android.graphics.Typeface.BOLD)
+            text("${intent.getStringExtra("empName").orEmpty()} · $user · 촬영/불러오기 현지시각 · 페이지당 20건", 12f)
+        } else {
+            text("$menuTitle · 내 저장자료", 22f)
+            text("${intent.getStringExtra("empName").orEmpty()} · $user")
+            text("촬영/불러오기 현지시각 기준 · 한 페이지 20건")
+        }
+        val (start, end) = HistoryFilterBar.dates(this, body, from, to, compact)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
-        val notice = text("")
+        val notice = text("", if (compact) 13f else 16f)
         val results =
             LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
         HistoryFilterBar.buttons(this, buttons, listOf(
@@ -73,7 +84,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
             },
             "선택 삭제" to { deleteSelected(results, notice) },
             (if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") to { leave() }
-        )) { !busy }
+        ), idle = { !busy }, compact = compact)
         loadList(results, notice)
     }
 
@@ -136,7 +147,11 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     text = "해당 기간에 저장된 자료가 없습니다."
                 })
                 rows.take(20).forEach { row ->
-                    deletion.row(results, row.requestId, (row.machineNo?.let { "$it · " } ?: "") + "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}") {
+                    // Compact: capture time to the minute and the screen on the same line.
+                    val title = if (compact) (row.machineNo?.let { "$it · " } ?: "") + row.capturedAt.take(16) + " · " +
+                        Cp14TableReader.pageTitle(row.screenType)
+                    else (row.machineNo?.let { "$it · " } ?: "") + "${row.capturedAt}\n${Cp14TableReader.pageTitle(row.screenType)}"
+                    deletion.row(results, row.requestId, title, compact) {
                         if (!busy) {
                             selectedId = row.requestId; detail(row.requestId)
                         }
@@ -167,7 +182,9 @@ class Cp14HistoryActivity : AppCompatActivity() {
     private fun detail(id: String) {
         selectedId = id; body.removeAllViews()
         body.setPadding(dp(8), dp(2), dp(8), dp(2))
-        text("$menuTitle · 저장 상세", 20f).apply { includeFontPadding = false }
+        text("$menuTitle · 저장 상세", if (compact) 17f else 20f).apply {
+            includeFontPadding = false; if (compact) setTypeface(null, android.graphics.Typeface.BOLD)
+        }
         val notice = text("저장된 값을 불러오는 중…", 13f).apply { includeFontPadding = false }
         val dataView =
             LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
@@ -179,7 +196,8 @@ class Cp14HistoryActivity : AppCompatActivity() {
                 // The CP 계량/배압(m) and PB 계량/배압 menus hold both of their screens (S5~S1 and MIRACON-I).
                 val sameMenu = record.summary.screenType == screenType ||
                     (screenType == Cp14TableReader.METERING || screenType == Cp14TableReader.PB_METERING) &&
-                    record.summary.screenType == Cp14TableReader.MIRACON
+                    record.summary.screenType == Cp14TableReader.MIRACON ||
+                    screenType == Cp14TableReader.PB_INJECTION && record.summary.screenType == Cp14TableReader.MIRACON_INJECTION
                 check(screenType.isEmpty() || sameMenu) { "이 메뉴의 저장자료가 아닙니다." }
                 notice.text =
                     Cp14TableReader.pageTitle(record.summary.screenType) + "\n" +
@@ -243,13 +261,16 @@ class Cp14HistoryActivity : AppCompatActivity() {
         }
     }
 
-    /** PB records, section by section in journal order: each item's name above its stored value. */
+    /**
+     * PB records, section by section in journal order: each item's name (small, grey) right above its stored
+     * value, with no minimum row height and 1dp padding so a whole record fits on one screen.
+     */
     private fun pbTable(page: String, fields: JSONObject) = TableLayout(this).apply {
         val columns = 6
         PbJournal.sections(page).forEach { (title, items) ->
             addView(TableRow(this@Cp14HistoryActivity).apply {
-                addView(cell(title, true).apply {
-                    layoutParams = TableRow.LayoutParams().apply { span = columns }
+                addView(pbCell(title, header = true).apply {
+                    layoutParams = TableRow.LayoutParams().apply { span = columns; topMargin = dp(2) }
                 })
             })
             items.chunked(columns).forEachIndexed { index, row ->
@@ -257,12 +278,24 @@ class Cp14HistoryActivity : AppCompatActivity() {
                     if (index % 2 == 0) setBackgroundColor(0xFFF2F4F7.toInt())
                     row.forEach { item ->
                         val value = if (fields.isNull(item.key)) "—" else fields.optString(item.key, "—")
-                        addView(cell(item.label + "\n" + value))
+                        addView(pbCell(item.label, value))
                     }
-                    repeat(columns - row.size) { addView(cell("")) }
+                    repeat(columns - row.size) { addView(pbCell("")) }
                 })
             }
         }
+    }
+
+    private fun pbCell(label: String, value: String? = null, header: Boolean = false) = TextView(this).apply {
+        text = if (value == null) label else android.text.SpannableString("$label\n$value").apply {
+            setSpan(android.text.style.AbsoluteSizeSpan(10, true), 0, label.length, 0)
+            setSpan(android.text.style.ForegroundColorSpan(0xFF5B6778.toInt()), 0, label.length, 0)
+        }
+        textSize = if (header) 12f else 14f
+        includeFontPadding = false; setLineSpacing(0f, 1f); maxLines = if (header) 1 else 3
+        gravity = android.view.Gravity.CENTER; setPadding(dp(1), dp(1), dp(1), dp(1))
+        if (header) { setTypeface(typeface, android.graphics.Typeface.BOLD); setBackgroundColor(0xFFE2E7ED.toInt()) }
+        layoutParams = TableRow.LayoutParams(0, -2, 1f)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -285,7 +318,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
         HistoryFilterBar.buttons(this, body, listOf(
             "목록으로" to { list() },
             (if (intent.getBooleanExtra("fromMenu", false)) "메뉴로" else "메뉴 가기") to { leave() }
-        )) { !busy }
+        ), idle = { !busy }, compact = compact)
     }
 
     override fun onSaveInstanceState(out: Bundle) {

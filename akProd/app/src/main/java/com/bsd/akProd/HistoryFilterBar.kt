@@ -19,10 +19,10 @@ internal object HistoryFilterBar {
     }
 
     /** "기간 [시작일] ~ [종료일]" on one line; returns the start and end fields. */
-    fun dates(context: Context, parent: LinearLayout, from: String, to: String): Pair<EditText, EditText> = with(context) {
+    fun dates(context: Context, parent: LinearLayout, from: String, to: String, compact: Boolean = false): Pair<EditText, EditText> = with(context) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(6), 0, dp(4))
+            if (compact) setPadding(0, dp(2), 0, dp(1)) else setPadding(0, dp(6), 0, dp(4))
         }
         row.addView(TextView(this).apply { text = "기간"; textSize = 14f; setTypeface(typeface, Typeface.BOLD) },
             LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
@@ -30,7 +30,7 @@ internal object HistoryFilterBar {
             setSingleLine(); setText(value); hint = "yyyy-MM-dd"; textSize = 15f
             inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_DATE
             gravity = Gravity.CENTER; background = box(0xFFFFFFFF.toInt(), 0xFFC5CDD8.toInt())
-            setPadding(dp(4), dp(6), dp(4), dp(6))
+            if (compact) setPadding(dp(4), dp(3), dp(4), dp(3)) else setPadding(dp(4), dp(6), dp(4), dp(6))
         }
         val start = field(from); val end = field(to)
         row.addView(start, LinearLayout.LayoutParams(0, -2, 1f))
@@ -42,14 +42,19 @@ internal object HistoryFilterBar {
     }
 
     /** Equal-width compact buttons on one line; the first one is the primary action. */
-    fun buttons(context: Context, parent: LinearLayout, items: List<Pair<String, () -> Unit>>, idle: () -> Boolean) = with(context) {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(2), 0, dp(6)) }
+    fun buttons(context: Context, parent: LinearLayout, items: List<Pair<String, () -> Unit>>, compact: Boolean = false,
+                idle: () -> Boolean) = with(context) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            if (compact) setPadding(0, dp(1), 0, dp(2)) else setPadding(0, dp(2), 0, dp(6))
+        }
         items.forEachIndexed { index, (title, action) ->
             val primary = index == 0
             row.addView(Button(this).apply {
                 text = title; isAllCaps = false; textSize = 14f
                 minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
-                setPadding(dp(4), dp(8), dp(4), dp(8)); stateListAnimator = null
+                if (compact) setPadding(dp(4), dp(5), dp(4), dp(5)) else setPadding(dp(4), dp(8), dp(4), dp(8))
+                stateListAnimator = null
                 setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF2B3A4F.toInt())
                 background = if (primary) box(0xFF2F6FDE.toInt(), 0xFF2F6FDE.toInt()) else box(0xFFF2F4F7.toInt(), 0xFFC5CDD8.toInt())
                 setOnClickListener { if (idle()) action() }

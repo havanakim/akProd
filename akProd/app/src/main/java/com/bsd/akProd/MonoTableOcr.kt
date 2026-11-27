@@ -104,6 +104,9 @@ class MonoTableOcr(
             // Which screen the photo shows, so the metering menu can switch to it.
             suggestedPage = when {
                 parsed.miraconHeaders >= 2 -> Cp14TableReader.MIRACON
+                // MIRACON-I 사출 및 보압 seen as another 사출 screen: IP/IV with an S4~S1 position row.
+                page != Cp14TableReader.MIRACON_INJECTION && parsed.cells.keys.any { it.startsWith("IP") || it.startsWith("IV") } &&
+                    parsed.cells.keys.any { it.matches(Regex("S[1-4]")) } -> Cp14TableReader.MIRACON_INJECTION
                 // The S5~S1 metering screen has no S0; MIRACON-I's position row does.
                 (page == Cp14TableReader.METERING || page == Cp14TableReader.PB_METERING) && "S0" in parsed.cells -> Cp14TableReader.MIRACON
                 parsed.cells.keys.any {
@@ -160,10 +163,10 @@ class MonoTableOcr(
             val votes = candidates.getOrPut(key) { linkedMapOf() }
             votes[cell.value] = cell to ((votes[cell.value]?.second ?: 0) + 1)
             val shown = corrected ?: glyphs.joinToString("") { it.text }
-            if (Cp14TableReader.matchesDisplay(key, shown) != false)
+            if (Cp14TableReader.matchesDisplay(key, shown, page) != false)
                 displayMatched.getOrPut(key) { mutableSetOf() }.add(cell.value)
             log.append("[후보] $pass $key=${cell.value} ($shown) @%.4f,%.4f,%.4f,%.4f\n".format(Locale.US, left, top, right, bottom))
-            if (page == Cp14TableReader.MIRACON && '8' in OcrNumericGlyphs.canonical(shown))
+            if (page in Cp14TableReader.miraconPages && '8' in OcrNumericGlyphs.canonical(shown))
                 checkEights(key, cell.value, OcrNumericGlyphs.canonical(shown), left, top, right, bottom)
             if (pass == "미수집 칸 확대" || pass == "칸별 CLAHE" || pass == "칸별 Otsu") {
                 val counts = localVotes.getOrPut(key) { linkedMapOf() }
@@ -463,7 +466,7 @@ class MonoTableOcr(
         var ambiguous =
             key in segmentReview && key !in zeroCorrected && pressureAgreement == null &&
                     chosen.value.any { it in "89" }
-        if (page == Cp14TableReader.MIRACON) {
+        if (page in Cp14TableReader.miraconPages) {
             // The slashed 0 of this font is read as 8 on blurred photos (60.0 -> 68, 40.0 -> 40.8) and a
             // partial pixel fix still leaves 8s, so a value with a 9, or an 8 whose glyph shape was not
             // confirmed as a real 8 (middle bar, no slash: [eightsVerified]), is never filled. A forwarded,

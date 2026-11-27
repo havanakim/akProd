@@ -26,6 +26,7 @@ object MonoWordDump {
             val truth = JSONObject(assets.assets.open("holding1120/truth.json").bufferedReader().readText())
             JSONObject(assets.assets.open("metering1120/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
             JSONObject(assets.assets.open("miracon1120/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
+            JSONObject(assets.assets.open("pbinjection1127/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
             JSONObject(assets.assets.open("pbmiracon1127/truth.json").bufferedReader().readText()).let { m -> m.keys().forEach { truth.put(it, m.get(it)) } }
             runBlocking {
                 val photos = assets.assets.list("holding1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "holding1120/$it" } +
@@ -33,12 +34,15 @@ object MonoWordDump {
                     assets.assets.list("metering1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "metering1120/$it" } +
                     assets.assets.list("miracon1120").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "miracon1120/$it" } +
                     // PB 6호기 (SPE-150) MIRACON-I 계량·배압 photos, read as the PB 계량/배압 menu reads them.
-                    assets.assets.list("pbmiracon1127").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "pbmiracon1127/$it" }
+                    assets.assets.list("pbmiracon1127").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "pbmiracon1127/$it" } +
+                    // PB 6호기 MIRACON-I 사출 및 보압 photos, read as the PB 사출/보압 menu reads them.
+                    assets.assets.list("pbinjection1127").orEmpty().filter { it.endsWith(".jpg") }.sorted().map { "pbinjection1127/$it" }
                 for (path in photos.filter { only == null || it.contains(only) }) {
                     val name = path.substringAfter("/")
                     val page = when {
                         path.startsWith("metering1120") -> Cp14TableReader.METERING
                         path.startsWith("miracon1120") || path.startsWith("pbmiracon1127") -> Cp14TableReader.MIRACON
+                        path.startsWith("pbinjection1127") -> Cp14TableReader.MIRACON_INJECTION
                         else -> Cp14TableReader.INJECTION
                     }
                     val decoded = assets.assets.open(path).use { BitmapFactory.decodeStream(it)!! }

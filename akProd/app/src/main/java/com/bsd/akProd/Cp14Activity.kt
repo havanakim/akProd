@@ -34,7 +34,10 @@ class Cp14Activity : AppCompatActivity() {
     private data class Photo(val file: File, val loadedAt: String, var ocr: String = "")
 
     private val photos = mutableListOf<Photo>()
-    private val fields = linkedMapOf<String, EditText>()
+    /** Inputs by screen: CP screens share one set (""), each PB screen has its own (their keys overlap). */
+    private val pageFields = linkedMapOf<String, LinkedHashMap<String, EditText>>()
+    private val fields get() = pageFields.getOrPut(if (pbMenu) recordPage else "") { linkedMapOf() }
+    private var fieldCount = 0
     private val absent = linkedMapOf<String, CheckBox>()
     private val editing = mutableListOf<android.view.View>()
     private val korean by lazy {
@@ -71,11 +74,11 @@ class Cp14Activity : AppCompatActivity() {
     private var recordPage = Cp14TableReader.INJECTION
     /**
      * 계량/배압(m) chooses between its two screens; the injection menu between injection and metering.
-     * PB 계량/배압 offers the HYUNDAI MIRACON-I screen (PB 6호기) first, then the S5~S1 screen.
+     * The PB menus offer the HYUNDAI MIRACON-I screen (PB 6호기) first, then the journal-layout screen.
      */
     private val selectablePages
         get() = if (menu == Cp14TableReader.PB_METERING) listOf(Cp14TableReader.MIRACON, Cp14TableReader.PB_METERING)
-        else if (pbMenu) listOf(menu)
+        else if (menu == Cp14TableReader.PB_INJECTION) listOf(Cp14TableReader.MIRACON_INJECTION, Cp14TableReader.PB_INJECTION)
         else if (meteringMenu) listOf(Cp14TableReader.METERING, Cp14TableReader.MIRACON)
         else listOf(Cp14TableReader.INJECTION, Cp14TableReader.METERING)
     /** Typed-in PB journal items of the current screen (none on the CP screens). */
@@ -232,17 +235,17 @@ class Cp14Activity : AppCompatActivity() {
                 ); message("0 글꼴 학습을 초기화했습니다.")
             }
         }
-        fun addField(grid: FieldGrid, key: String, title: String, numeric: Boolean = true) {
+        fun addField(grid: FieldGrid, key: String, title: String, numeric: Boolean = true, page: String = "") {
             val cell = grid.cell(title.substringBefore(" · "))
             val input = EditText(this).apply {
-                id = 21000 + fields.size; isSingleLine = true
+                id = 21000 + fieldCount++; isSingleLine = true
                 inputType = if (numeric)
                     android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
                 else android.text.InputType.TYPE_CLASS_TEXT
                 hint = "입력"; textSize = 15f; gravity = android.view.Gravity.CENTER
                 contentDescription = title
             }
-            fields[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2)); editing.add(input)
+            pageFields.getOrPut(page) { linkedMapOf() }[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2)); editing.add(input)
             input.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(
                     s: CharSequence?,
@@ -284,7 +287,7 @@ class Cp14Activity : AppCompatActivity() {
                 val firstChild = body.childCount
                 label(title + if (items.none { it.ocr }) " · 직접 입력" else "", 20f)
                 val grid = FieldGrid(this, body)
-                items.forEach { addField(grid, it.key, it.label, it.numeric) }
+                items.forEach { addField(grid, it.key, it.label, it.numeric, page) }
                 // Keyed by screen: MIRACON-I and S5~S1 share section titles (배압, 계량 속도, 계량 위치).
                 groupViews["$page|$title"] = (firstChild until body.childCount).map { body.getChildAt(it) }
             }
@@ -965,7 +968,7 @@ class Cp14Activity : AppCompatActivity() {
     private fun reset() {
         if (recordPage == Cp14TableReader.LEGACY) recordPage = Cp14TableReader.INJECTION
         restoring = true
-        fields.values.forEach { it.setText(""); it.error = null }
+        pageFields.values.flatMap { it.values }.forEach { it.setText(""); it.error = null }
         machine.clear(); round.clear()
         absent.values.forEach { it.isChecked = false }
         photos.clear(); pending = false; saved = false; capturedAt = ""; cameraUri =

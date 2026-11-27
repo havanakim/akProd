@@ -15,6 +15,17 @@ object Cp14TableReader {
     const val PB_INJECTION = "PB_INJECTION_HOLDING"
     const val PB_METERING = "PB_METERING_BACK_PRESSURE"
     val pbPages = setOf(PB_INJECTION, PB_METERING)
+    /**
+     * HYUNDAI MIRACON-I 사출 및 보압 screen (PB 6호기): IP4~IP1, IV4~IV1, S4 <== S3 <== S2 <== S1 <== S0,
+     * HP3~HP1 and IHT, HT2, HT1. Stored with the 사출/보압 keys of the same meaning: S4~S1 as IF4~IF1 (사출 위치),
+     * IHT (under HP3) as HT3.
+     */
+    const val MIRACON_INJECTION = "INJECTION_MIRACON"
+    /** Screens printed in the MIRACON-I LCD font, whose slashed 0 OCR misreads as 8. */
+    val miraconPages = setOf(MIRACON, MIRACON_INJECTION)
+    private val miraconInjectionPrinted = mapOf(
+        "IF4" to "S4", "IF3" to "S3", "IF2" to "S2", "IF1" to "S1", "HT3" to "IHT"
+    )
     val stages = listOf("IF", "S0", "IP", "IV", "HP", "HT", "S", "RV", "BP")
     val miraconStages = listOf("MBP", "MR", "MS")
     val blankAllowed = emptySet<String>()
@@ -47,6 +58,14 @@ object Cp14TableReader {
         put("HP1", "HP1 · ${groups.getValue("HP")}"); put("HT1", "HT1 · ${groups.getValue("HT")}")
     }
 
+    /** MIRACON-I 사출 및 보압, labelled as printed (S4 for IF4, IHT for HT3). */
+    private val miraconInjectionLabels = linkedMapOf<String, String>().apply {
+        fun add(key: String) = put(key, (miraconInjectionPrinted[key] ?: key) + " · " + groups.getValue(prefix(key)))
+        for (prefix in listOf("IP", "IV")) for (stage in 4 downTo 1) add("$prefix$stage")
+        for (stage in 4 downTo 1) add("IF$stage"); add("S0")
+        for (prefix in listOf("HP", "HT")) for (stage in 3 downTo 1) add("$prefix$stage")
+    }
+
     fun prefix(key: String) = if (key == "S0") "S0" else key.dropLast(1)
     private fun rowFamily(key: String) = if (prefix(key) in setOf("IF", "S0")) "IF" else prefix(key)
 
@@ -67,6 +86,7 @@ object Cp14TableReader {
         MIRACON -> miraconStages.toSet()
         PB_INJECTION -> setOf("IF", "IP", "IV", "HP", "HT")
         PB_METERING -> setOf("S", "RV", "BP")
+        MIRACON_INJECTION -> setOf("IP", "IV", "IF", "S0", "HP", "HT")
         LEGACY -> stages.toSet()
         else -> error("화면 구분을 선택하세요.")
     }
@@ -77,11 +97,15 @@ object Cp14TableReader {
         MIRACON -> "MIRACON-I 계량·배압"
         PB_INJECTION -> "PB 사출·보압"
         PB_METERING -> "PB 계량·배압"
+        MIRACON_INJECTION -> "MIRACON-I 사출·보압"
         else -> "기존 통합자료"
     }
 
-    fun labelsFor(page: String): Map<String, String> =
-        if (page == PB_INJECTION) pbInjectionLabels else labels.filterKeys { prefix(it) in prefixes(page) }
+    fun labelsFor(page: String): Map<String, String> = when (page) {
+        PB_INJECTION -> pbInjectionLabels
+        MIRACON_INJECTION -> miraconInjectionLabels
+        else -> labels.filterKeys { prefix(it) in prefixes(page) }
+    }
     fun validatePage(values: Map<String, String>, page: String) {
         val scoped = labelsFor(page)
         require(values.keys.all { it in scoped }) { "다른 화면의 항목이 포함되어 있습니다." }
@@ -119,6 +143,8 @@ object Cp14TableReader {
             .replace(Regex("^[8${'$'}](?=[1-5SI]${'$'})"), "S")
         // PB 사출 화면의 마지막 위치 IF0 (IF1 <= IF0).
         if (cleaned.matches(Regex("IF[0OØ]"))) return "IF0"
+        // MIRACON-I 사출 및 보압: IHT heads the first 보압 time (HP3's column).
+        if (cleaned.matches(Regex("[I1L|]HT"))) return "IHT"
         // Anchors fed back between passes keep their MIRACON key.
         if (cleaned.matches(Regex("M(BP[1-3]|R[1-3S]|S[650B])"))) return cleaned
         // MIRACON-I headers: R1~R3, SB.SPEED, S6 and SB (SB stays separate here; see [alias]).
@@ -149,6 +175,12 @@ object Cp14TableReader {
      */
     private fun alias(candidates: LinkedHashMap<String, MutableList<Word>>, page: String) {
         if (page != PB_INJECTION) candidates.remove("IF0")
+        if (page == MIRACON_INJECTION) {
+            // The position row is printed S4 <== … <== S1 <== S0: S4~S1 are 사출 위치 (IF4~IF1); IHT is HT3.
+            (mapOf("IHT" to "HT3") + (1..4).associate { "S$it" to "IF$it" }).forEach { (from, to) ->
+                candidates.remove(from)?.let { list -> candidates.getOrPut(to) { mutableListOf() }.addAll(list.map { it.copy(text = to) }) }
+            }
+        } else candidates.remove("IHT")
         if (page != MIRACON) {
             candidates.remove("SB")?.let { candidates.getOrPut("S0") { mutableListOf() }.addAll(it) }
             miraconOnly.forEach { candidates.remove(it) }
@@ -290,8 +322,10 @@ object Cp14TableReader {
     val orderedPositions = listOf(listOf("S5", "S4", "S3", "S2", "S1"), listOf("IF5", "IF4", "IF3", "IF2", "IF1", "S0"), listOf("IF5", "IF4", "IF3", "IF2", "IF1", "IF0"), listOf("MS6", "MS5", "MS0"))
 
     /** null when the field has no known layout; then the format is never used to discard a reading. */
-    fun matchesDisplay(key: String, shown: String): Boolean? =
-        displayFormats[prefix(key)]?.matches(OcrNumericGlyphs.canonical(shown))
+    fun matchesDisplay(key: String, shown: String, page: String = ""): Boolean? =
+        // MIRACON-I 사출 및 보압 prints IHT as 030.0 but HT2/HT1 as 00.0.
+        (if (page == MIRACON_INJECTION && prefix(key) == "HT") Regex("\\d{2,3}\\.\\d") else displayFormats[prefix(key)])
+            ?.matches(OcrNumericGlyphs.canonical(shown))
 
     // Rows printed in the same columns: a header OCR missed takes the column of its partner row
     // (RV above a highlighted or cursor cell is often unread; BP sits right under it).

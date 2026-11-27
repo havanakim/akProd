@@ -32,20 +32,23 @@ object PbJournal {
         )
     )
 
-    /** Typed-in items of [page]; the PB 계량/배압 screen has none. */
+    /** The PB 사출/보압 menu's screens: the journal layout (IF5~IF0) and HYUNDAI MIRACON-I (PB 6호기). */
+    private val injectionPages = setOf(Cp14TableReader.PB_INJECTION, Cp14TableReader.MIRACON_INJECTION)
+
+    /** Typed-in items of [page]: on both PB 사출/보압 screens; the 계량/배압 screens have none. */
     fun manualFields(page: String): List<Field> =
-        if (page == Cp14TableReader.PB_INJECTION) manual.values.flatten() else emptyList()
+        if (page in injectionPages) manual.values.flatten() else emptyList()
 
     /** Every section of [page] in journal order: the OCR rows first, then the typed-in journal items. */
     fun sections(page: String): LinkedHashMap<String, List<Field>> {
         val result = linkedMapOf<String, List<Field>>()
-        if (page == Cp14TableReader.PB_INJECTION) result["기본 정보"] = manual.getValue("기본 정보")
+        if (page in injectionPages) result["기본 정보"] = manual.getValue("기본 정보")
         Cp14TableReader.labelsFor(page).entries.groupBy { Cp14TableReader.prefix(it.key) }
             .forEach { (prefix, entries) ->
                 result[Cp14TableReader.stageName(prefix)] =
                     entries.map { Field(it.key, it.value.substringBefore(" · "), ocr = true) }
             }
-        if (page == Cp14TableReader.PB_INJECTION) manual.forEach { (title, fields) -> result.putIfAbsent(title, fields) }
+        if (page in injectionPages) manual.forEach { (title, fields) -> result.putIfAbsent(title, fields) }
         return result
     }
 

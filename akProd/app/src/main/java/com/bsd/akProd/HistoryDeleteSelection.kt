@@ -17,16 +17,28 @@ class HistoryDeleteSelection(private val activity: AppCompatActivity) {
     fun clear() = chosen.clear()
 
     /** One list row: a check box for deletion and the existing button that opens the record. */
-    fun row(container: LinearLayout, id: String, title: String, open: () -> Unit) {
-        val line = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+    fun row(container: LinearLayout, id: String, title: String, compact: Boolean = false, open: () -> Unit) {
+        val dp = activity.resources.displayMetrics.density
+        val line = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
+        }
         line.addView(CheckBox(activity).apply {
             isChecked = id in chosen
             contentDescription = "$title 삭제 선택"
+            if (compact) { minHeight = 0; minimumHeight = 0 }
             setOnCheckedChangeListener { _, checked -> if (checked) chosen.add(id) else chosen.remove(id) }
         })
         line.addView(Button(activity).apply {
             text = title; isAllCaps = false; setOnClickListener { open() }
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            // Compact rows: no default 48dp touch-height padding or inset shadow, two text lines close together.
+            if (compact) {
+                minHeight = 0; minimumHeight = 0; textSize = 13f; stateListAnimator = null
+                setPadding((8 * dp).toInt(), (3 * dp).toInt(), (8 * dp).toInt(), (3 * dp).toInt())
+                setLineSpacing(0f, 1f)
+            }
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            if (compact) { topMargin = (1 * dp).toInt(); bottomMargin = (1 * dp).toInt() }
+        })
         container.addView(line)
     }
 

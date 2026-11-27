@@ -303,6 +303,7 @@ class MonoTableOcr(
             }.awaitAll()
         }
         lap("칸별 확대 ${cells.size}칸")
+        if (alive()) zeroFromRowPeer()
     }
 
     /**
@@ -383,6 +384,38 @@ class MonoTableOcr(
         val widths = first.map { it[1] - it[0] }.sorted()
         if (widths.last() > widths.first() * 1.6f) return null
         return first.map { it[0].toFloat() / w to it[1].toFloat() / w }
+    }
+
+    /**
+     * An HP cell still without any reading (glare on one glyph defeats the zero check: 000 seen as 800) is compared
+     * with an HP cell of the same row that the source pixels did verify as 000 ([ZeroPeer]). When all three glyphs
+     * match that verified 0, the cell is 000. Both crops are cut alike, centred on their own header and about its
+     * width, so the unit (Kg/cm²) after the last column stays out.
+     */
+    private fun zeroFromRowPeer() {
+        val row = anchors.filterKeys { it.startsWith("HP") && it in active }
+        val reference = row.keys.firstOrNull { it in allZeroVerified } ?: return
+        fun valueCrop(anchor: Cp14TableReader.Word): Triple<Int, Int, IntArray>? {
+            val l = ((anchor.left - anchor.height * .8f).coerceAtLeast(0f) * image.width).toInt()
+            val r = ((anchor.right + anchor.height * .8f).coerceAtMost(1f) * image.width).toInt()
+            val t = ((anchor.bottom + anchor.height * .03f) * image.height).toInt()
+            val bottom = minOf(1f, anchor.bottom + anchor.height * 2.2f, Cp14TableReader.nextRowTop(anchor, anchors.values) ?: 1f)
+            val b = (bottom * image.height).toInt().coerceAtMost(image.height)
+            if (r - l < 6 || b - t < 8) return null
+            val px = IntArray((r - l) * (b - t)); image.getPixels(px, 0, r - l, l, t, r - l, b - t)
+            return Triple(r - l, b - t, px)
+        }
+        val template = valueCrop(row.getValue(reference)) ?: return
+        row.filterKeys { candidates[it].isNullOrEmpty() }.forEach { (key, anchor) ->
+            val crop = valueCrop(anchor) ?: return@forEach
+            val (zero, why) = ZeroPeer.allZeroLike(crop, template)
+            log.append("[같은 줄 0 비교] $key ↔ $reference : " + (if (zero) "000 확인" else "확인 못 함") + " · $why\n")
+            if (!zero) return@forEach
+            val word = Cp14TableReader.Word("000", anchor.left, anchor.bottom, anchor.right, anchor.bottom + anchor.height * 2f)
+            candidates.getOrPut(key) { linkedMapOf() }["0"] = Cp14TableReader.Cell("0", listOf(word)) to 1
+            zeroCorrected.add(key); allZeroVerified.add(key)
+            afterZeroCorrection.getOrPut(key) { linkedSetOf() }.add("0")
+        }
     }
 
     /**

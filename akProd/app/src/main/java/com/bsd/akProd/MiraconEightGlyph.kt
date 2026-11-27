@@ -43,6 +43,21 @@ object MiraconEightGlyph {
         }.keys
     }
 
+    /** An 8 measuring at least this slashed is a misread 0 (misread 0s measured 0.55 and up, real 8s 0.34 at most). */
+    internal const val SLASHED_DIAGONAL = .50f
+
+    /**
+     * True when every 8 of [text] is clearly a slashed 0 by its shape (40.8 for 40.0), with the same self-check as
+     * [realEights]: the cell's glyphs must split one-to-one and its own 0s must show their slash. False when unsure.
+     */
+    fun allEightsSlashed(width: Int, height: Int, pixels: IntArray, text: String): Boolean {
+        val shapes = shapes(width, height, pixels, text) ?: return false
+        val zeros = shapes.filter { (position, _) -> text[position] == '0' }.values
+        if (zeros.isEmpty() || zeros.minOf { it.diagonal } < MIN_ZERO_DIAGONAL) return false
+        val eights = shapes.filter { (position, _) -> text[position] == '8' }.values
+        return eights.isNotEmpty() && eights.all { it.diagonal >= SLASHED_DIAGONAL }
+    }
+
     /** Each digit position of [text] with its glyph shape; null when segmentation does not match [text]. */
     fun shapes(width: Int, height: Int, pixels: IntArray, text: String): Map<Int, Shape>? {
         val raw = text.trim()

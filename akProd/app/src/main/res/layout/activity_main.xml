@@ -82,13 +82,13 @@
                 android:text="CP사출/보합(c)"
                 android:textAllCaps="false" />
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnCp14"
+                android:id="@+id/btnMeteringC"
                 style="@style/PDAButtonStyle"
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="@color/mono_gray"
-                android:text="CP사출/보합(m)"
+                app:backgroundTint="#0F766E"
+                android:text="CP계량/흘림방지(c)"
                 android:textAllCaps="false" />
         </LinearLayout>
     <LinearLayout
@@ -97,14 +97,14 @@
         android:layout_marginTop="12dp"
         android:orientation="horizontal">
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnMeteringC"
+            android:id="@+id/btnCp14"
             style="@style/PDAButtonStyle"
             android:layout_width="0dp"
             android:layout_height="60dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
-            app:backgroundTint="#0F766E"
-            android:text="CP계량/흘림방지(c)"
+            app:backgroundTint="@color/mono_gray"
+            android:text="CP사출/보합(m)"
             android:textAllCaps="false" />
 
         <com.google.android.material.button.MaterialButton
@@ -117,6 +117,13 @@
             android:text="CP계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
+    <!-- CP 메뉴와 PB 메뉴 구분선 (등록) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="2dp"
+        android:background="?attr/colorOutline" />
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -164,16 +171,16 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 app:backgroundTint="#1d9f96"
-                android:text="사출/보합(color)"
+                android:text="CP사출/보합(color)"
                 android:textAllCaps="false" />
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnCp14History"
+                android:id="@+id/btnMeteringHistoryC"
                 style="@style/PDAButtonStyle"
                 android:layout_width="0dp"
                 android:layout_height="60dp"
                 android:layout_weight="1"
-                app:backgroundTint="@color/mono_gray"
-                android:text="CP 사출/보합(mono)"
+                app:backgroundTint="#115E59"
+                android:text="CP계량/흘림방지(c)"
                 android:textAllCaps="false" />
         </LinearLayout>
     <LinearLayout
@@ -182,14 +189,14 @@
         android:layout_marginTop="12dp"
         android:orientation="horizontal">
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnMeteringHistoryC"
+            android:id="@+id/btnCp14History"
             style="@style/PDAButtonStyle"
             android:layout_width="0dp"
             android:layout_height="60dp"
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
-            app:backgroundTint="#115E59"
-            android:text="계량/흘림방지(c)"
+            app:backgroundTint="@color/mono_gray"
+            android:text="CP사출/보합(mono)"
             android:textAllCaps="false" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnMeteringHistory"
@@ -198,9 +205,16 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             app:backgroundTint="@color/mono_gray_dark"
-            android:text="CP 계량/배압(m)"
+            android:text="CP계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
+    <!-- CP 메뉴와 PB 메뉴 구분선 (조회) -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="2dp"
+        android:background="?attr/colorOutline" />
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

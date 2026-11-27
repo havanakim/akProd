@@ -67,7 +67,22 @@ class MonoTableOcr(
         val real = MiraconEightGlyph.realEights(r - l, b - t, pixels, shown) ?: return
         val all = shown.indices.filter { shown[it] == '8' }.all { it in real }
         eightChecks.getOrPut(key) { linkedMapOf() }.getOrPut(value) { IntArray(2) }[if (all) 0 else 1]++
-        log.append("[8 형태 확인] $key $shown : " + (if (all) "진짜 8" else "빗금 0 의심") + "\n")
+        val slashed = !all && MiraconEightGlyph.allEightsSlashed(r - l, b - t, pixels, shown)
+        if (slashed) slashedEights.getOrPut(key) { linkedMapOf() }.let { it[value] = (it[value] ?: 0) + 1 }
+        log.append("[8 형태 확인] $key $shown : " + (if (all) "진짜 8" else if (slashed) "빗금 0 (뚜렷)" else "빗금 0 의심") + "\n")
+    }
+
+    /** MIRACON-I: per cell and value, how many readings had every 8 measured clearly as a slashed 0. */
+    val slashedEights = mutableMapOf<String, MutableMap<String, Int>>()
+
+    /**
+     * A reading whose 8s were measured clearly as slashed 0s in at least two readings and never confirmed as real 8s
+     * is that value with 0s (40.8 → 40): it yields to that rival when the rival was read too.
+     */
+    private fun slashedMisread(key: String, value: String, rivals: Set<String>): Boolean {
+        if ((slashedEights[key]?.get(value) ?: 0) < 2 || (eightChecks[key]?.get(value)?.get(0) ?: 0) > 0) return false
+        val zeroed = Cp14TableReader.number(value.replace('8', '0')) ?: return false
+        return zeroed != value && zeroed in rivals
     }
     val log = StringBuilder()
     var wrongPage = false
@@ -705,6 +720,14 @@ class MonoTableOcr(
         else options.keys.filterNot { candidate ->
             verifiedSet.any { ZeroCandidateAgreement.supersedes(it, candidate) }
         }.toSet() - beforeZeroCorrection[key].orEmpty() + verifiedSet
+        if (page in Cp14TableReader.miraconPages && remaining.size > 1) {
+            // 40.8 whose 8 the glyph shape shows as a slashed 0 (twice, never a real 8) is the misread of 40.
+            val misread = remaining.filter { slashedMisread(key, it, remaining) }.toSet()
+            if (misread.isNotEmpty() && remaining.size > misread.size) {
+                log.append("[빗금 0 정리] $key ${misread.joinToString()} → ${(remaining - misread).joinToString()}\n")
+                remaining = remaining - misread
+            }
+        }
         if (remaining.size > 1) {
             // A reading that never matched the printed layout (e.g. 2230 for a 00.0 speed) is OCR debris.
             val formatted =

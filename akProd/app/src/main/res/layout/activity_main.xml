@@ -82,7 +82,7 @@
                 android:layout_height="60dp"
                 android:layout_weight="1"
                 app:backgroundTint="@color/mono_gray"
-                android:text="CP 사출/보합(mono)"
+                android:text="CP사출/보합(m)"
                 android:textAllCaps="false" />
         </LinearLayout>
     <LinearLayout
@@ -108,7 +108,7 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             app:backgroundTint="@color/mono_gray_dark"
-            android:text="CP 계량/배압(m)"
+            android:text="CP계량/배압(m)"
             android:textAllCaps="false" />
     </LinearLayout>
     <LinearLayout
@@ -124,7 +124,7 @@
             android:layout_weight="1"
             android:layout_marginEnd="8dp"
             app:backgroundTint="@color/pb_brown"
-            android:text="PB 사출/보합"
+            android:text="PB사출/보합"
             android:textAllCaps="false" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPbMetering"
@@ -133,7 +133,7 @@
             android:layout_height="60dp"
             android:layout_weight="1"
             app:backgroundTint="@color/pb_brown_dark"
-            android:text="PB 계량/배압"
+            android:text="PB계량/배압"
             android:textAllCaps="false" />
     </LinearLayout>
         <TextView

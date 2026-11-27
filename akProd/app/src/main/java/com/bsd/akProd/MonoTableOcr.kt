@@ -3,6 +3,7 @@ package com.bsd.akProd
 import android.content.Context
 import android.graphics.*
 import java.util.Locale
+import kotlin.math.abs
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognizer
 import kotlinx.coroutines.CoroutineScope
@@ -95,7 +96,10 @@ class MonoTableOcr(
         roi: RectF = RectF(0f, 0f, 1f, 1f), pass: String = "원본"
     ) {
         if (wrongPage) return
-        val tokens = words(text, width, height, roi)
+        val probes = mutableSetOf<Cp14TableReader.Word>()
+        val tokens = words(text, width, height, roi).let {
+            if (page == Cp14TableReader.MIRACON_INJECTION) letterDecimals(it, probes) else it
+        }
         log.append("[인식 경로] $pass\n")
         if (roi.width() < .5f) log.append("[원문] " + text.text.replace("\n", " / ") + "\n")
         val parsed = Cp14TableReader.read(tokens + anchors.values, page)
@@ -150,6 +154,11 @@ class MonoTableOcr(
                 source, pl, pt, pr, pb, glyphs.joinToString("") { it.text },
                 context, Cp14TableReader.MACHINE
             )?.takeIf { fixed -> fixed.count { it in "89" } <= rawText.count { it in "89" } }
+            // A decimal digit OCR gave as a letter ("152. E") was probed as 8: kept only when the pixels turn exactly
+            // that digit into a 0 and change nothing else (53.8 → 53.0, never 953.0).
+            if (glyphs.any { it in probes } && zeroCheck?.let { Cp14TableReader.number(it) } != Cp14TableReader.number(rawText.dropLast(1) + "0")) {
+                log.append("[소수 글자 제외] $key ($rawText → ${zeroCheck ?: "-"}) 0 확인 못 함\n"); return@forEach
+            }
             // The slashed zero is also misread as 3 or 6 (100.0 -> 103.0, 130.0 -> 136.0). Probe those
             // glyphs like an 8; only a positively verified zero shape replaces them, a real 3/6 stays.
             val base = zeroCheck ?: OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
@@ -377,6 +386,26 @@ class MonoTableOcr(
     }
 
     /**
+     * On the MIRACON-I font OCR sometimes gives the slashed 0 after a decimal point as a letter ("152. E"), and the
+     * reading is lost. Such a "152." with a lone E/C/G right after it on the same line becomes one word "152.8", a
+     * probe recorded in [probes]: the value stands only if the zero check then turns that 8 into a 0 on the pixels.
+     */
+    private fun letterDecimals(tokens: List<Cp14TableReader.Word>, probes: MutableSet<Cp14TableReader.Word>): List<Cp14TableReader.Word> {
+        val out = tokens.toMutableList()
+        for (head in tokens.filter { it.text.matches(Regex("[0-9]+\\.")) }) {
+            val letter = tokens.firstOrNull {
+                it.text in setOf("E", "C", "G", "e", "c") && it.left >= head.right - head.height * .2f &&
+                    it.left - head.right < head.height * 1.2f && abs(it.y - head.y) < head.height * .5f
+            } ?: continue
+            if (head !in out || letter !in out) continue
+            val merged = Cp14TableReader.Word(head.text + "8", head.left, minOf(head.top, letter.top),
+                letter.right, maxOf(head.bottom, letter.bottom))
+            out.remove(head); out.remove(letter); out.add(merged); probes.add(merged)
+        }
+        return out
+    }
+
+    /**
      * One cursor-cell reading completed from its cut-off last digit ([shown], e.g. "030.0"): a candidate and a local
      * vote like any other reading, kept only when it has the cell's printed layout.
      */
@@ -508,7 +537,10 @@ class MonoTableOcr(
             }
         )
         val r = minOf(
-            1f, if (ifRow && next != null) 1f else anchor.x + half, when {
+            1f, if (ifRow && next != null) 1f
+            // MIRACON-I S0 (152.0) runs right of its short header: let the last column reach most of a pitch further.
+            else if (ifRow && page == Cp14TableReader.MIRACON_INJECTION) maxOf(anchor.x + half, anchor.right + pitch * .75f)
+            else anchor.x + half, when {
                 next == null -> 1f
                 ifRow -> next.left - next.height * .5f
                 else -> (next.x + anchor.x) / 2

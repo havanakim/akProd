@@ -70,6 +70,20 @@ class PbMenuTest {
     }
 
     @Test
+    fun missingS0IsPlacedOnePitchRightOfIf1() {
+        fun w(t: String, l: Float) = Cp14TableReader.Word(t, l, .44f, l + .03f, .455f)
+        // Photo 9: S4~S1 found at widening pitches (.101, .107, .116), S0 not.
+        val anchors = linkedMapOf("IF4" to w("IF4", .2327f), "IF3" to w("IF3", .3340f), "IF2" to w("IF2", .4407f), "IF1" to w("IF1", .5567f))
+        Cp14TableReader.inferStartPosition(anchors)
+        // .116 grown by its .009 step: ~.125 right of IF1.
+        assertEquals(.5567f + .125f, anchors.getValue("S0").left, .003f)
+        // A found S0 is never moved.
+        val found = linkedMapOf("IF2" to w("IF2", .44f), "IF1" to w("IF1", .55f), "IF3" to w("IF3", .33f), "S0" to w("S0", .70f))
+        Cp14TableReader.inferStartPosition(found)
+        assertEquals(.70f, found.getValue("S0").left, 1e-4f)
+    }
+
+    @Test
     fun hpHeadersFollowTheirValuesOnlyOnePerColumn() {
         fun w(t: String, l: Float) = Cp14TableReader.Word(t, l, .54f, l + .05f, .57f)
         val anchors = linkedMapOf("HP3" to w("HP3", .30f), "HP2" to w("HP2", .40f), "HP1" to w("HP1", .50f))

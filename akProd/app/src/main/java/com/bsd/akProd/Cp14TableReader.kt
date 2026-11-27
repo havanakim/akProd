@@ -258,6 +258,7 @@ object Cp14TableReader {
         }
         relocateHoldPressure(anchors, words)
         inferMissingHeaders(anchors)
+        if (page == MIRACON_INJECTION) inferStartPosition(anchors)
         val output = linkedMapOf<String, Cell>()
         anchors.forEach { (code, anchor) ->
             val prefix = rowFamily(code)
@@ -388,6 +389,23 @@ object Cp14TableReader {
      * the midpoint of both same-row neighbours, or the same stage of the paired row (IP/IV, HP/HT)
      * shifted by the offset measured on at least two shared stages. Values still come from source glyphs.
      */
+    /**
+     * S0 closes the position row ("IF5 <== … <== IF1 <== S0", MIRACON-I "S4 <== … <== S1 <== S0"): when OCR missed it,
+     * it is placed one column pitch right of IF1, the pitch measured between the row's other headers.
+     */
+    internal fun inferStartPosition(anchors: MutableMap<String, Word>) {
+        if ("S0" in anchors) return
+        val one = anchors["IF1"] ?: return
+        val row = (1..5).mapNotNull { s -> anchors["IF$s"] }
+        if (row.size < 3) return
+        // Pitches right to left (IF1←IF2, IF2←IF3 …); a slanted photo widens them toward one side, so the next
+        // one continues the last step's growth, within 20% of it.
+        val pitches = row.zipWithNext { a, b -> a.x - b.x }
+        if (pitches.size < 2 || pitches.any { it <= 0 }) return
+        val pitch = (pitches[0] + (pitches[0] - pitches[1])).coerceIn(pitches[0], pitches[0] * 1.2f)
+        anchors["S0"] = Word("S0", one.left + pitch, one.top, one.right + pitch, one.bottom)
+    }
+
     internal fun inferMissingHeaders(anchors: MutableMap<String, Word>) {
         repeat(2) {
             for (prefix in listOf("IF", "IP", "IV", "HP", "HT", "S", "RV", "BP")) {

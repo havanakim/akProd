@@ -275,6 +275,7 @@ class MonoTableOcr(
             image, latin, korean, modes = 2, shouldContinue = alive, skip = skip,
             accept = { text, w, h, roi, pass -> accept(text, w, h, roi, pass); lap("LCD $pass") },
             notice = { notices.add(it); log.append("[LCD 처리] $it\n") })
+        if (alive()) readHoldPressureRow(latin)
         // Read missing cells at larger scale. Headers determine the region; never fill missing cells with zero.
         val cells = anchors.values.filter {
             it.text in active && (it.text.startsWith("HP") || candidates[it.text].isNullOrEmpty() ||
@@ -293,6 +294,86 @@ class MonoTableOcr(
             }.awaitAll()
         }
         lap("칸별 확대 ${cells.size}칸")
+    }
+
+    /**
+     * When no HP cell has a reading yet, the strip between the HP header row and the HT header row is read once,
+     * enlarged. If it holds one value per HP header, the headers are moved onto those values (on MIRACON-I the HP
+     * columns sit left of IHT/HT2/HT1, so headers placed from the HT row miss them) and the values are accepted.
+     */
+    private suspend fun readHoldPressureRow(latin: TextRecognizer) {
+        val hp = anchors.filterKeys { it.startsWith("HP") && it in active }
+        val ht = anchors.filterKeys { it.startsWith("HT") }
+        if (hp.isEmpty() || ht.isEmpty() || hp.keys.any { !candidates[it].isNullOrEmpty() }) return
+        val top = hp.values.maxOf { it.bottom }; val bottom = ht.values.minOf { it.top }
+        if (bottom <= top) return
+        val pitch = ht.values.map { it.x }.sorted().zipWithNext { a, b -> b - a }.average().toFloat()
+            .takeIf { !it.isNaN() && it > 0f } ?: ht.values.first().let { (it.right - it.left) * 2 }
+        val all = hp.values + ht.values
+        val l = (all.minOf { it.left } - pitch).coerceAtLeast(0f)
+        val r = (all.maxOf { it.right } + pitch * .5f).coerceAtMost(1f)
+        val x = (l * image.width).toInt(); val y = (top * image.height).toInt()
+        val w = ((r - l) * image.width).toInt().coerceAtMost(image.width - x)
+        val h = ((bottom - top) * image.height).toInt().coerceAtMost(image.height - y)
+        if (w * 3 < 32 || h * 3 < 32) return
+        val source = Bitmap.createBitmap(image, x, y, w, h)
+        val enlarged = Bitmap.createScaledBitmap(source, w * 3, h * 3, true)
+        try {
+            val roi = RectF(x.toFloat() / image.width, y.toFloat() / image.height,
+                (x + w).toFloat() / image.width, (y + h).toFloat() / image.height)
+            val text = runCatching { LcdOcrPipeline.recognize(latin, enlarged) }.getOrNull() ?: return
+            var values = Cp14TableReader.holdPressureValues(anchors, words(text, enlarged.width, enlarged.height, roi))
+            // OCR often skips slashed 000 entirely: then the printed values are found as blocks of lit ink.
+            if (values.size != hp.size) inkBlocks(source, hp.size)?.let { blocks ->
+                values = blocks.map { (bl, br) ->
+                    Cp14TableReader.Word("#", roi.left + bl * roi.width(), roi.top, roi.left + br * roi.width(), roi.bottom)
+                }
+                log.append("[보압 줄] 글자 덩어리 ${blocks.size}개로 위치 확인\n")
+            }
+            if (!Cp14TableReader.alignToValues(anchors, "HP", values)) {
+                log.append("[보압 줄] 값 ${values.size}개 · HP 머리글 ${hp.size}개: 위치 그대로 · 원문 " +
+                    text.textBlocks.flatMap { b -> b.lines.flatMap { it.elements } }.joinToString(" ") { e ->
+                        e.text + "@" + (e.boundingBox?.let { "${it.left},${it.top}" } ?: "?") } + "\n"); return
+            }
+            log.append("[보압 줄] HP 머리글을 값 위로 이동: " + values.joinToString { it.text } + "\n")
+            accept(text, enlarged.width, enlarged.height, roi, "보압 줄")
+        } finally {
+            enlarged.recycle(); source.recycle()
+        }
+    }
+
+    /**
+     * The first [count] blocks of lit LCD ink in a one-line strip, left to right, as (left, right) shares of its width:
+     * digits of one value sit a stroke apart, values (and a unit like Kg/cm² after them) are columns apart. Null unless
+     * there are at least [count] blocks and those are alike in width (one printed value each).
+     */
+    private fun inkBlocks(strip: Bitmap, count: Int): List<Pair<Float, Float>>? {
+        val w = strip.width; val h = strip.height
+        val px = IntArray(w * h); strip.getPixels(px, 0, w, 0, 0, w, h)
+        val lit = (0 until w).map { x ->
+            (0 until h).count { y ->
+                val c = px[y * w + x]; val r = c shr 16 and 255; val g = c shr 8 and 255; val b = c and 255
+                r > 110 && g > 75 && r > b * 1.4f && g > b * 1.3f
+            } >= 2
+        }
+        val runs = mutableListOf<IntArray>()
+        var start = -1
+        for (x in 0..w) {
+            val on = x < w && lit[x]
+            if (on && start < 0) start = x
+            if (!on && start >= 0) { runs.add(intArrayOf(start, x)); start = -1 }
+        }
+        // Gaps inside a value are about a stroke; between values they are wider than a digit is tall (h ≈ row).
+        val blocks = mutableListOf<IntArray>()
+        for (run in runs) {
+            val last = blocks.lastOrNull()
+            if (last != null && run[0] - last[1] < h * .5f) last[1] = run[1] else blocks.add(run.copyOf())
+        }
+        val first = blocks.filter { it[1] - it[0] >= h * .5f }.take(count)
+        if (first.size < count) return null
+        val widths = first.map { it[1] - it[0] }.sorted()
+        if (widths.last() > widths.first() * 1.6f) return null
+        return first.map { it[0].toFloat() / w to it[1].toFloat() / w }
     }
 
     /**

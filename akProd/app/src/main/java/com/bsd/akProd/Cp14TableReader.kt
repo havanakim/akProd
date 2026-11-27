@@ -256,6 +256,7 @@ object Cp14TableReader {
             // A solitary HP5 label on a graph must not displace the five-column HP table.
             if (winners.size == 1) anchors[code] = winners.single()
         }
+        relocateHoldPressure(anchors, words)
         inferMissingHeaders(anchors)
         val output = linkedMapOf<String, Cell>()
         anchors.forEach { (code, anchor) ->
@@ -330,6 +331,57 @@ object Cp14TableReader {
     // Rows printed in the same columns: a header OCR missed takes the column of its partner row
     // (RV above a highlighted or cursor cell is often unread; BP sits right under it).
     private val columnPairs = mapOf("IP" to "IV", "IV" to "IP", "HP" to "HT", "HT" to "HP", "RV" to "BP", "BP" to "RV")
+
+    /**
+     * The 보압 table prints HP headers above their HT row, column for column. HP headers found level with or below
+     * the HT row are the graph caption "<— HP3 <— HP2 <— HP1" (MIRACON-I), whose cells are empty: they are dropped
+     * and each HP header is placed over its HT header, one IP→IV step up (the same header/value/header layout).
+     * Nothing changes when the HP headers sit above the HT row or the IP/IV offset cannot be measured.
+     */
+    internal fun relocateHoldPressure(anchors: MutableMap<String, Word>, words: List<Word>) {
+        val ht = anchors.filterKeys { prefix(it) == "HT" }
+        if (ht.size < 2) return
+        val htTop = ht.values.minOf { it.top }
+        val hp = anchors.filterKeys { prefix(it) == "HP" }
+        if (hp.isNotEmpty() && hp.values.all { it.bottom <= htTop }) return
+        // IV header minus IP header of the same stage: one header-to-header step down.
+        val steps = (1..5).mapNotNull { s ->
+            val ip = anchors["IP$s"]; val iv = anchors["IV$s"]
+            if (ip != null && iv != null && iv.y > ip.y) (iv.x - ip.x) to (iv.y - ip.y) else null
+        }
+        if (steps.isEmpty()) return
+        val dx = steps.map { it.first }.sorted()[steps.size / 2]
+        val dy = steps.map { it.second }.sorted()[steps.size / 2]
+        hp.keys.forEach { anchors.remove(it) }
+        ht.forEach { (key, word) ->
+            val code = "HP" + key.last()
+            anchors[code] = Word(code, word.left - dx, word.top - dy, word.right - dx, word.bottom - dy)
+        }
+        // On MIRACON-I the HP columns are shifted left of IHT/HT2/HT1: follow the printed values when they are read.
+        alignToValues(anchors, "HP", holdPressureValues(anchors, words))
+    }
+
+    /** Numbers printed between the HP header row and the HT header row (043 000 000), left to right. */
+    internal fun holdPressureValues(anchors: Map<String, Word>, words: List<Word>): List<Word> {
+        val hpBottom = anchors.filterKeys { prefix(it) == "HP" }.values.maxOfOrNull { it.bottom } ?: return emptyList()
+        val htTop = anchors.filterKeys { prefix(it) == "HT" }.values.minOfOrNull { it.top } ?: return emptyList()
+        return words.filter { number(OcrNumericGlyphs.canonical(it.text)) != null && it.y > hpBottom && it.y < htTop }
+            .sortedBy { it.x }
+    }
+
+    /**
+     * Moves each header of the [prefix] row sideways onto the value printed under it, when exactly one value per
+     * header was read (left to right). Returns false, changing nothing, otherwise.
+     */
+    internal fun alignToValues(anchors: MutableMap<String, Word>, prefix: String, values: List<Word>): Boolean {
+        val row = anchors.entries.filter { prefix(it.key) == prefix }.sortedBy { it.value.x }
+        if (row.isEmpty() || values.size != row.size) return false
+        row.forEachIndexed { index, (key, word) ->
+            val shift = values[index].x - word.x
+            anchors[key] = word.copy(left = word.left + shift, right = word.right + shift)
+        }
+        return true
+    }
 
     /**
      * A header OCR missed (e.g. IV4 between IV5 and IV3) is placed only from printed neighbours:

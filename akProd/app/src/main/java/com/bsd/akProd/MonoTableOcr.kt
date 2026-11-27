@@ -557,8 +557,12 @@ class MonoTableOcr(
             val realEight = '8' in chosen.value && '9' !in chosen.value && eightsVerified(key, chosen.value)
             // The glyph check settles 8 against slashed 0, which is what the segment review flagged.
             if (realEight) ambiguous = false
-            if (chosen.value.any { it in "89" } && !realEight || downSized && (chosen.value !in displayMatched[key].orEmpty() ||
-                        (options[chosen.value]?.second ?: 0) < 2)) ambiguous = true
+            // HP 000 whose three glyphs were each verified as a zero on the source pixels ("원본 0 글자 검증") is
+            // settled by the pixels; the two-readings rule for down-sized photos does not apply (HP3 043 never
+            // verified as 000 on the PB 6호기 photos, HP2/HP1 000 did in 7 of 8 cells).
+            val verifiedHpZero = key.startsWith("HP") && key in allZeroVerified && chosen.value == "0"
+            if (chosen.value.any { it in "89" } && !realEight || !verifiedHpZero && downSized &&
+                (chosen.value !in displayMatched[key].orEmpty() || (options[chosen.value]?.second ?: 0) < 2)) ambiguous = true
         }
         return Decision(chosen, pressureAgreement, remaining.takeIf { it.size > 1 }, ambiguous)
     }

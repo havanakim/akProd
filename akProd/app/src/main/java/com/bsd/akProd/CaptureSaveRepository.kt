@@ -9,8 +9,8 @@ import java.sql.SQLException
  *
  * | menu                                   | column |
  * |----------------------------------------|--------|
- * | 사출/보압(mono) (CP_mono), 사출/보압(color) | JSON1  |
- * | 계량/배압(m), 계량/흘림방지(c)            | JSON2  |
+ * | 사출/보압(mono) (CP_mono), 사출/보압(color), PB 사출/보압 | JSON1  |
+ * | 계량/배압(m), 계량/흘림방지(c), PB 계량/배압               | JSON2  |
  *
  * Each save first looks for a row with the same CAPTURED_AT date, 호기 (DEVICE_CODE) and 차수 (ROUND_NO).
  * Only when there is none does it insert; otherwise it updates that row's JSON column only.
@@ -21,10 +21,14 @@ internal object CaptureSaveRepository {
     /** JSON "HMI": the first item of every saved JSON, telling the color menus from the mono menus. */
     const val HMI_COLOR = "C"
     const val HMI_MONO = "M"
+    /** PB 사출기 menus (PB 사출/보압 JSON1, PB 계량/배압 JSON2); their 호기 are P01~P16. */
+    const val HMI_PB = "P"
 
     enum class Target(val jsonColumn: String, val machine: String) {
         MONO("JSON1", Cp14TableReader.MACHINE),
         MONO_METERING("JSON2", Cp14TableReader.MACHINE),
+        PB("JSON1", "PB"),
+        PB_METERING("JSON2", "PB"),
         COLORED_HMI("JSON1", Cp3TableReader.MACHINE),
         COLORED("JSON2", Cp3TableReader.MACHINE)
     }
@@ -41,7 +45,9 @@ internal object CaptureSaveRepository {
          * "HMI" existed has none and is listed by both.
          */
         fun rowsFor(hmi: String): String {
-            require(hmi == HMI_COLOR || hmi == HMI_MONO)
+            require(hmi == HMI_COLOR || hmi == HMI_MONO || hmi == HMI_PB)
+            // PB was added after "HMI" existed: older JSON without it is always CP, never PB.
+            if (hmi == HMI_PB) return "($column IS NOT NULL AND JSON_VALUE($column,'$.HMI')='$hmi')"
             return "($column IS NOT NULL AND COALESCE(JSON_VALUE($column,'$.HMI'),'$hmi')='$hmi')"
         }
 
@@ -216,13 +222,13 @@ internal object CaptureSaveRepository {
     internal fun requestId(id: String): Long =
         id.toLongOrNull() ?: throw IllegalArgumentException("내 저장자료에서 해당 건을 찾을 수 없습니다.")
 
-    /** The 사출기 호기 (C01~C16) written by the registration screens into the stored JSON, if any. */
+    /** The 사출기 호기 (CP C01~C16, PB P01~P16) written by the registration screens into the stored JSON, if any. */
     internal fun machineNo(json: String): String? =
-        Regex("\"MACHINE\"\\s*:\\s*\"(C(0[1-9]|1[0-6]))\"").find(json)?.groupValues?.get(1)
+        Regex("\"MACHINE\"\\s*:\\s*\"([CP](0[1-9]|1[0-6]))\"").find(json)?.groupValues?.get(1)
 
     /** History list label such as "C05 · 3차"; null when the row predates the 호기 picker. */
     internal fun deviceLabel(deviceCode: String?, round: Number?): String? =
-        deviceCode?.takeIf { it.matches(Regex("C[0-9]{2}")) }
+        deviceCode?.takeIf { it.matches(Regex("[CP][0-9]{2}")) }
             ?.let { code -> round?.let { "$code · ${it.toInt()}차" } ?: code }
 
     /** The 차수 (1, 2, 3 …) written by the registration screens into the stored JSON, if any. */

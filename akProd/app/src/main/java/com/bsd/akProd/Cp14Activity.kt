@@ -56,12 +56,32 @@ class Cp14Activity : AppCompatActivity() {
     private var pending = false
     private var saved = false
     private var restoring = false
-    private val meteringMenu get() = intent.getStringExtra("screenType") == Cp14TableReader.METERING
+    /** The menu ("screenType" extra): "" CP 사출/보압(mono), METERING CP 계량/배압(m), PB_INJECTION, PB_METERING. */
+    private val menu get() = intent.getStringExtra("screenType").orEmpty()
+    private val meteringMenu get() = menu == Cp14TableReader.METERING
+    /** PB 사출/보압 and PB 계량/배압: one fixed screen each, 호기 P01~P16, JSON "HMI":"P". */
+    private val pbMenu get() = menu in Cp14TableReader.pbPages
+    private val menuTitle
+        get() = when (menu) {
+            Cp14TableReader.METERING -> "CP 계량/배압(m)"
+            Cp14TableReader.PB_INJECTION -> "PB 사출/보압"
+            Cp14TableReader.PB_METERING -> "PB 계량/배압"
+            else -> "CP 사출/보압(mono)"
+        }
     private var recordPage = Cp14TableReader.INJECTION
-    /** 계량/배압(m) chooses between its two screens; the injection menu between injection and metering. */
+    /**
+     * 계량/배압(m) chooses between its two screens; the injection menu between injection and metering.
+     * PB 계량/배압 offers the HYUNDAI MIRACON-I screen (PB 6호기) first, then the S5~S1 screen.
+     */
     private val selectablePages
-        get() = if (meteringMenu) listOf(Cp14TableReader.METERING, Cp14TableReader.MIRACON)
+        get() = if (menu == Cp14TableReader.PB_METERING) listOf(Cp14TableReader.MIRACON, Cp14TableReader.PB_METERING)
+        else if (pbMenu) listOf(menu)
+        else if (meteringMenu) listOf(Cp14TableReader.METERING, Cp14TableReader.MIRACON)
         else listOf(Cp14TableReader.INJECTION, Cp14TableReader.METERING)
+    /** Typed-in PB journal items of the current screen (none on the CP screens). */
+    private fun manualFields() = if (pbMenu) PbJournal.manualFields(recordPage) else emptyList()
+    /** Every input the current screen saves: the OCR items and the typed-in journal items. */
+    private fun entryKeys() = activeLabels().keys + manualFields().map { it.key }
     private var changingPage = false
     private lateinit var pageSelector: Spinner
     private lateinit var machine: MachineNoPicker
@@ -96,7 +116,7 @@ class Cp14Activity : AppCompatActivity() {
         }
         setContentView(ScrollView(this).apply { addView(body) })
         label(
-            if (meteringMenu) "계량/배압(m) · 수치 등록" else "CP_mono · 수치 등록 (v${BuildConfig.VERSION_NAME})",
+            "$menuTitle · 수치 등록 (v${BuildConfig.VERSION_NAME})",
             22f
         )
         label(
@@ -104,7 +124,9 @@ class Cp14Activity : AppCompatActivity() {
                 intent.getStringExtra("empNo").orEmpty()
             })"
         )
-        recordPage = if (meteringMenu) state?.getString("recordPage")?.takeIf { it in selectablePages }
+        recordPage = if (pbMenu) state?.getString("recordPage")?.takeIf { it in selectablePages }
+            ?: selectablePages.first()
+        else if (meteringMenu) state?.getString("recordPage")?.takeIf { it in selectablePages }
             ?: Cp14TableReader.METERING
         else state?.getString("recordPage")
             ?: if (state?.getBoolean("pending") == true) Cp14TableReader.LEGACY else Cp14TableReader.INJECTION
@@ -118,7 +140,7 @@ class Cp14Activity : AppCompatActivity() {
         }
         body.addView(pageSelector); editing.add(pageSelector)
         label("사출기 호기 · 차수")
-        machine = MachineNoPicker(this, 23500).also { picker ->
+        machine = MachineNoPicker(this, 23500, if (pbMenu) "P" else "C").also { picker ->
             round = RoundNoPicker(this, 23501)
             body.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -210,56 +232,69 @@ class Cp14Activity : AppCompatActivity() {
                 ); message("0 글꼴 학습을 초기화했습니다.")
             }
         }
-        (Cp14TableReader.stages + Cp14TableReader.miraconStages).forEach { stage ->
+        fun addField(grid: FieldGrid, key: String, title: String, numeric: Boolean = true) {
+            val cell = grid.cell(title.substringBefore(" · "))
+            val input = EditText(this).apply {
+                id = 21000 + fields.size; isSingleLine = true
+                inputType = if (numeric)
+                    android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                else android.text.InputType.TYPE_CLASS_TEXT
+                hint = "입력"; textSize = 15f; gravity = android.view.Gravity.CENTER
+                contentDescription = title
+            }
+            fields[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2)); editing.add(input)
+            input.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int
+                ) {
+                }
+
+                override fun onTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int
+                ) {
+                    if (!restoring && ::confirmed.isInitialized) confirmed.isChecked = false
+                }
+
+                override fun afterTextChanged(s: Editable?) {}
+            })
+            if (key in Cp14TableReader.blankAllowed) {
+                val check = CheckBox(this).apply {
+                    id = 22000 + absent.size; text = "표시없음"; textSize = 12f
+                    contentDescription = "사진에서 표시 없음 (0과 다름)"
+                }
+                absent[key] = check; cell.addView(check); editing.add(check)
+                check.setOnCheckedChangeListener { _, checked ->
+                    if (checked) {
+                        input.setText(""); input.error = null
+                    }
+                    input.isEnabled = !checked && !pending && !saved && !busy
+                    if (::confirmed.isInitialized && !restoring) confirmed.isChecked = false
+                }
+            }
+        }
+        if (pbMenu) selectablePages.forEach { page ->
+            PbJournal.sections(page).forEach { (title, items) ->
+                // PB 공정관리일지 order; typed-in items (C/T, 온도, 중량, 비고 …) are not read from the photo.
+                val firstChild = body.childCount
+                label(title + if (items.none { it.ocr }) " · 직접 입력" else "", 20f)
+                val grid = FieldGrid(this, body)
+                items.forEach { addField(grid, it.key, it.label, it.numeric) }
+                // Keyed by screen: MIRACON-I and S5~S1 share section titles (배압, 계량 속도, 계량 위치).
+                groupViews["$page|$title"] = (firstChild until body.childCount).map { body.getChildAt(it) }
+            }
+        }
+        else (Cp14TableReader.stages + Cp14TableReader.miraconStages).forEach { stage ->
             val firstChild = body.childCount
             label(Cp14TableReader.stageName(stage), 20f)
             val grid = FieldGrid(this, body)
             Cp14TableReader.labels.filterKeys { Cp14TableReader.prefix(it) == stage }
-                .forEach { (key, title) ->
-                    val cell = grid.cell(title.substringBefore(" · "))
-                    val input = EditText(this).apply {
-                        id = 21000 + fields.size; isSingleLine = true
-                        inputType =
-                            android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-                        hint = "입력"; textSize = 15f; gravity = android.view.Gravity.CENTER
-                        contentDescription = title
-                    }
-                    fields[key] = input; cell.addView(input, LinearLayout.LayoutParams(-1, -2)); editing.add(input)
-                    input.addTextChangedListener(object : TextWatcher {
-                        override fun beforeTextChanged(
-                            s: CharSequence?,
-                            start: Int,
-                            count: Int,
-                            after: Int
-                        ) {
-                        }
-
-                        override fun onTextChanged(
-                            s: CharSequence?,
-                            start: Int,
-                            before: Int,
-                            count: Int
-                        ) {
-                            if (!restoring && ::confirmed.isInitialized) confirmed.isChecked = false
-                        }
-
-                        override fun afterTextChanged(s: Editable?) {}
-                    })
-                    if (key in Cp14TableReader.blankAllowed) {
-                        val check = CheckBox(this).apply {
-                            id = 22000 + absent.size; text = "표시없음"; textSize = 12f
-                            contentDescription = "사진에서 표시 없음 (0과 다름)"
-                        }
-                        absent[key] = check; cell.addView(check); editing.add(check)
-                        check.setOnCheckedChangeListener { _, checked ->
-                            if (checked) {
-                                input.setText(""); input.error = null
-                            }
-                            input.isEnabled = !checked && !pending && !saved && !busy
-                            if (::confirmed.isInitialized && !restoring) confirmed.isChecked = false
-                        }
-                    }
-                }
+                .forEach { (key, title) -> addField(grid, key, title) }
             groupViews[stage] = (firstChild until body.childCount).map { body.getChildAt(it) }
         }
         confirmed = CheckBox(this).apply { id = 23000; text = "입력값을 확인했으며 빈 항목은 null로 등록합니다." }
@@ -364,7 +399,8 @@ class Cp14Activity : AppCompatActivity() {
         groupViews.forEach { (prefix, views) ->
             views.forEach {
                 it.visibility =
-                    if (prefix in Cp14TableReader.prefixes(recordPage)) android.view.View.VISIBLE else android.view.View.GONE
+                    if (if (pbMenu) prefix.startsWith("$recordPage|") else prefix in Cp14TableReader.prefixes(recordPage))
+                        android.view.View.VISIBLE else android.view.View.GONE
             }
         }
         headerChooser.adapter = ArrayAdapter(
@@ -531,7 +567,10 @@ class Cp14Activity : AppCompatActivity() {
                 photo.ocr += ocr.log.toString()
                 if (isDestroyed) return@launch
                 if (ocr.wrongPage) {
-                    val other = ocr.suggestedPage
+                    // The PB 계량/배압 menu calls the S5~S1 metering screen PB_METERING.
+                    val other = ocr.suggestedPage?.let {
+                        if (menu == Cp14TableReader.PB_METERING && it == Cp14TableReader.METERING) Cp14TableReader.PB_METERING else it
+                    }
                     // First photo of an empty entry shows the other screen of this menu: switch and read again.
                     if (other != null && other != recordPage && other in selectablePages && photos == listOf(photo) &&
                         fields.values.all { it.text.isBlank() }
@@ -619,7 +658,7 @@ class Cp14Activity : AppCompatActivity() {
 
     private fun readSelected() {
         val key = preview.selectedKey
-        if (key !in Cp14TableReader.labels || preview.regions[key] == null) {
+        if (key !in activeLabels() || preview.regions[key] == null) {
             message("선택 항목의 숫자 영역을 사진에서 드래그하세요."); return
         }
         val crop = preview.crop(key)
@@ -684,7 +723,7 @@ class Cp14Activity : AppCompatActivity() {
 
     private fun learnZeroFont() {
         val key = preview.selectedKey
-        if (key !in Cp14TableReader.labels || preview.regions[key] == null || photoSelector.selectedItemPosition !in photos.indices) {
+        if (key !in activeLabels() || preview.regions[key] == null || photoSelector.selectedItemPosition !in photos.indices) {
             message("0이 포함된 항목을 선택하고 사진에서 숫자 전체만 드래그하세요.")
             return
         }
@@ -698,7 +737,7 @@ class Cp14Activity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; setPadding(24, 8, 24, 0)
             addView(TextView(this@Cp14Activity).apply {
                 text =
-                    "선택 영역: " + Cp14TableReader.labels[key] + "\n사진의 숫자를 앞자리 0과 소수점까지 그대로 입력하세요. 810.0으로 인식돼도 실제 표시가 010.0이면 010.0을 입력합니다."
+                    "선택 영역: " + activeLabels()[key] + "\n사진의 숫자를 앞자리 0과 소수점까지 그대로 입력하세요. 810.0으로 인식돼도 실제 표시가 010.0이면 010.0을 입력합니다."
             })
             addView(answer)
         }
@@ -727,15 +766,20 @@ class Cp14Activity : AppCompatActivity() {
             message("등록 완료된 건입니다. 새 등록을 시작하세요."); return
         }
         val user = intent.getStringExtra("empNo").orEmpty()
+        val keys = entryKeys()
         val values =
-            fields.filterKeys { it in activeLabels() }.mapValues { it.value.text.toString().trim() }
+            fields.filterKeys { it in keys }.mapValues { it.value.text.toString().trim() }
+        val ocrValues = values.filterKeys { it in activeLabels() }
+        val manualValues = values - ocrValues.keys
         val absentKeys = absent.filterValues { it.isChecked }.keys
+        val storedManual: Map<String, String?>
         try {
             require(user.isNotBlank()) { "다시 로그인하세요." }
             require(machine.value != null) { "사출기 호기를 선택하세요." }
             require(round.value != null) { "차수를 선택하세요." }
             require(confirmed.isChecked) { "입력값 확인에 체크하세요." }
-            Cp14TableReader.validatePage(values, recordPage)
+            Cp14TableReader.validatePage(ocrValues, recordPage)
+            storedManual = if (pbMenu) PbJournal.values(recordPage, manualValues) else emptyMap()
         } catch (e: Exception) {
             saveStatus.text = e.message ?: "입력값을 확인하세요."
             message(saveStatus.text.toString()); return
@@ -743,16 +787,16 @@ class Cp14Activity : AppCompatActivity() {
         if (capturedAt.isBlank()) capturedAt =
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US).format(Date())
         val storedFields = JSONObject().apply {
-            CaptureFieldValues.nullableValues(
+            (CaptureFieldValues.nullableValues(
                 activeLabels().keys,
-                values,
+                ocrValues,
                 absentKeys,
                 Cp14TableReader::number
-            )
+            ) + storedManual)
                 .forEach { (key, value) -> put(key, value ?: JSONObject.NULL) }
         }
         val payload =
-            JSONObject().put("HMI", CaptureSaveRepository.HMI_MONO).put("MACHINE", machine.value).put("ROUND", round.value)
+            JSONObject().put("HMI", Cp14Repository.hmiOf(menu)).put("MACHINE", machine.value).put("ROUND", round.value)
                 .put("CAPTURED_AT", capturedAt).put("FIELDS", storedFields).toString()
         val data = if (recordPage == Cp14TableReader.LEGACY) payload else JSONObject(payload).put(
             "SCREEN_TYPE",
@@ -782,7 +826,7 @@ class Cp14Activity : AppCompatActivity() {
                 }
                 val task = CaptureSaveWorker.submit("Cp14:" + savedRequestId) { task ->
                     task.savedId.set(Cp14Repository.save(
-                        meteringMenu,
+                        menu,
                         savedRequestId,
                         user,
                         savedCapturedAt,
@@ -814,7 +858,7 @@ class Cp14Activity : AppCompatActivity() {
                     pendingKey,
                     savedRequestId
                 )
-                status.text = "CP_mono 수치 등록 완료 · 요청 번호 ${work?.savedId?.get().orEmpty()}"
+                status.text = "$menuTitle 수치 등록 완료 · 요청 번호 ${work?.savedId?.get().orEmpty()}"
                 saveStatus.text = status.text
                 message("등록 완료")
                 openHistory(work?.savedId?.get())
@@ -843,7 +887,7 @@ class Cp14Activity : AppCompatActivity() {
             startActivity(Intent(this, Cp14HistoryActivity::class.java).apply {
                 putExtra("empNo", this@Cp14Activity.intent.getStringExtra("empNo"))
                 putExtra("empName", this@Cp14Activity.intent.getStringExtra("empName"))
-                if (meteringMenu) putExtra("screenType", Cp14TableReader.METERING)
+                if (menu.isNotEmpty()) putExtra("screenType", menu)
                 if (id != null) putExtra("requestId", id)
             })
         }.onFailure { message("조회 화면을 열지 못했습니다. 저장자료 조회를 다시 누르세요.") }
@@ -874,7 +918,7 @@ class Cp14Activity : AppCompatActivity() {
     }
 
     private fun draftKey() = "user." + intent.getStringExtra("empNo")
-        .orEmpty() + (if (meteringMenu) "." + Cp14TableReader.METERING else "")
+        .orEmpty() + (if (menu.isNotEmpty()) ".$menu" else "")
 
     private fun photosJson() = JSONArray().apply {
         photos.forEach {

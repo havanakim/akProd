@@ -19,7 +19,17 @@ class Cp14HistoryActivity : AppCompatActivity() {
     private var to = ""
     private var page = 0
     private var selectedId: String? = null
-    private val screenType get() = if (intent.getStringExtra("screenType") == Cp14TableReader.METERING) Cp14TableReader.METERING else ""
+    /** The menu: "" CP 사출/보압(mono), METERING CP 계량/배압(m), PB_INJECTION, PB_METERING. */
+    private val screenType get() = intent.getStringExtra("screenType")
+        ?.takeIf { it == Cp14TableReader.METERING || it in Cp14TableReader.pbPages }.orEmpty()
+    private val pbMenu get() = screenType in Cp14TableReader.pbPages
+    private val menuTitle
+        get() = when (screenType) {
+            Cp14TableReader.METERING -> "CP 계량/배압(m)"
+            Cp14TableReader.PB_INJECTION -> "PB 사출/보압"
+            Cp14TableReader.PB_METERING -> "PB 계량/배압"
+            else -> "CP 사출/보압(mono)"
+        }
     private val user get() = intent.getStringExtra("empNo").orEmpty()
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -48,7 +58,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
         body.setPadding(20, 20, 20, 20)
         selectedId = null
         body.removeAllViews()
-        text(if (screenType.isNotEmpty()) "계량/배압(m) · 내 저장자료" else "CP_mono · 내 저장자료", 22f)
+        text("$menuTitle · 내 저장자료", 22f)
         text("${intent.getStringExtra("empName").orEmpty()} · $user")
         text("촬영/불러오기 현지시각 기준 · 한 페이지 20건")
         val (start, end) = HistoryFilterBar.dates(this, body, from, to)
@@ -157,7 +167,7 @@ class Cp14HistoryActivity : AppCompatActivity() {
     private fun detail(id: String) {
         selectedId = id; body.removeAllViews()
         body.setPadding(dp(8), dp(2), dp(8), dp(2))
-        text("CP_mono · 저장 상세", 20f).apply { includeFontPadding = false }
+        text("$menuTitle · 저장 상세", 20f).apply { includeFontPadding = false }
         val notice = text("저장된 값을 불러오는 중…", 13f).apply { includeFontPadding = false }
         val dataView =
             LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; body.addView(this) }
@@ -166,15 +176,19 @@ class Cp14HistoryActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val record = withContext(Dispatchers.IO) { Cp14Repository.get(user, id, screenType) }
-                // The 계량/배압(m) menu holds both of its screens (S5~S1 and MIRACON-I).
+                // The CP 계량/배압(m) and PB 계량/배압 menus hold both of their screens (S5~S1 and MIRACON-I).
                 val sameMenu = record.summary.screenType == screenType ||
-                    screenType == Cp14TableReader.METERING && record.summary.screenType == Cp14TableReader.MIRACON
+                    (screenType == Cp14TableReader.METERING || screenType == Cp14TableReader.PB_METERING) &&
+                    record.summary.screenType == Cp14TableReader.MIRACON
                 check(screenType.isEmpty() || sameMenu) { "이 메뉴의 저장자료가 아닙니다." }
                 notice.text =
                     Cp14TableReader.pageTitle(record.summary.screenType) + "\n" +
                         (CaptureSaveRepository.machineNo(record.json)?.let { "호기 $it · " } ?: "") + (CaptureSaveRepository.roundNo(record.json)?.let { "${it}차 · " } ?: "") +
                         "${record.summary.capturedAt} · 작업자 ${record.summary.user}"
                 val fields = JSONObject(record.json).getJSONObject("FIELDS")
+                if (pbMenu) {
+                    dataView.addView(pbTable(record.summary.screenType, fields)); return@launch
+                }
                 val table = TableLayout(this@Cp14HistoryActivity)
                 val header = TableRow(this@Cp14HistoryActivity)
                 header.addView(cell("항목 / 단위", true, 2f))
@@ -225,6 +239,28 @@ class Cp14HistoryActivity : AppCompatActivity() {
                 notice.text = "조회 실패: " + (e.message ?: "저장자료를 확인하세요.")
             } finally {
                 busy = false
+            }
+        }
+    }
+
+    /** PB records, section by section in journal order: each item's name above its stored value. */
+    private fun pbTable(page: String, fields: JSONObject) = TableLayout(this).apply {
+        val columns = 6
+        PbJournal.sections(page).forEach { (title, items) ->
+            addView(TableRow(this@Cp14HistoryActivity).apply {
+                addView(cell(title, true).apply {
+                    layoutParams = TableRow.LayoutParams().apply { span = columns }
+                })
+            })
+            items.chunked(columns).forEachIndexed { index, row ->
+                addView(TableRow(this@Cp14HistoryActivity).apply {
+                    if (index % 2 == 0) setBackgroundColor(0xFFF2F4F7.toInt())
+                    row.forEach { item ->
+                        val value = if (fields.isNull(item.key)) "—" else fields.optString(item.key, "—")
+                        addView(cell(item.label + "\n" + value))
+                    }
+                    repeat(columns - row.size) { addView(cell("")) }
+                })
             }
         }
     }

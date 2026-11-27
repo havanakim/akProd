@@ -33,4 +33,7 @@
     <!-- 모노 메뉴 버튼 (사출/보압(mono), 계량/배압(m)) -->
     <color name="mono_gray">#6B7280</color>
     <color name="mono_gray_dark">#4B5563</color>
+    <!-- PB 메뉴 버튼 (PB 사출/보합, PB 계량/배압) -->
+    <color name="pb_brown">#8A5A2B</color>
+    <color name="pb_brown_dark">#6B4421</color>
 </resources>

@@ -9,10 +9,16 @@ import android.widget.Toast
  * 사출기 호기 (C01~C16) chooser for the CP registration screens. There is deliberately no default:
  * every new registration starts unselected so the operator must pick the machine before adding photos.
  */
-class MachineNoPicker(private val activity: Activity, viewId: Int) {
+class MachineNoPicker(private val activity: Activity, viewId: Int, prefix: String = "C") {
     companion object {
-        val numbers = (1..16).map { "C%02d".format(it) }
+        /** CP 사출기 C01~C16. */
+        val numbers = numbers("C")
+        /** PB 사출기 P01~P16. */
+        val pbNumbers = numbers("P")
+        fun numbers(prefix: String) = (1..16).map { "$prefix%02d".format(it) }
     }
+
+    private val numbers = numbers(prefix)
 
     val spinner = Spinner(activity).apply {
         id = viewId

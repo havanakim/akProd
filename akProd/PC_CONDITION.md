@@ -8,14 +8,14 @@ DB에는 [scripts/pc-condition-schema.sql](scripts/pc-condition-schema.sql)을 1
 | 컬럼 | 내용 |
 |---|---|
 | REQUEST_ID | bigint, 시퀀스 `dbo.SEQ_PC_CONDITION`에서 발급. 기존 UUID는 옮기지 않음 |
-| DEVICE_CODE | 사출기 호기 C01~C16 (기존 MACHINE_CODE) |
+| DEVICE_CODE | 사출기 호기: CP C01~C16, PB P01~P16 (기존 MACHINE_CODE) |
 | ROUND_NO | 차수 1, 2, 3… (호기와 함께 선택, 옮긴 기존 자료는 NULL) |
 | USER_ID | 작업자 |
 | CAPTURED_AT | 현지 촬영/불러오기 시각 |
 | INSERT_AT | 서버 등록 시각 (기존 REGISTERED_AT) |
 | REG_DT | 등록일 `YYYYMMDD` (char(8)). INSERT 때 DB가 현재일로 자동 입력, UPDATE 때는 그대로 둠 ([scripts/pc-condition-reg-dt.sql](scripts/pc-condition-reg-dt.sql), AKEP 적용 완료) |
-| JSON1 | 사출/보압(mono)(CP_mono 메뉴의 모든 화면), 사출/보압(color) 메뉴의 입력값 JSON |
-| JSON2 | 계량/배압(m)(S5~S1·MIRACON-I), 계량/흘림방지(c) 메뉴의 입력값 JSON |
+| JSON1 | CP 사출/보압(mono)(CP_mono 메뉴의 모든 화면), 사출/보압(color), PB 사출/보압 메뉴의 입력값 JSON |
+| JSON2 | CP 계량/배압(m)(S5~S1·MIRACON-I), 계량/흘림방지(c), PB 계량/배압 메뉴의 입력값 JSON |
 | JSON3 | 추가 JSON 값용 예비 컬럼 |
 | PHOTO_COUNT | 사진 수 (현재는 항상 0) |
 
@@ -56,3 +56,18 @@ FROM [dbo].[TB_PC_CONDITION]
 WHERE DEVICE_CODE = 'C05' AND CAPTURED_AT >= '2026-11-23' AND CAPTURED_AT < '2026-11-24'
 ORDER BY ROUND_NO;
 ```
+
+## PB 메뉴 (2026-11-27)
+
+- 메인 화면 등록·조회에 `PB 사출/보합`, `PB 계량/배압`을 추가했다. 기존 모노 메뉴는 `CP 사출/보합(mono)`, `CP 계량/배압(m)`로 이름을 바꿨다.
+- 호기는 P01~P16, JSON `"HMI":"P"`. PB 조회는 `"HMI":"P"`인 자료만 보여 주고(HMI 없는 예전 자료는 CP로 본다), CP 조회에는 PB 자료가 나오지 않는다.
+- SCREEN_TYPE: PB 사출/보압 `PB_INJECTION_HOLDING`(JSON1), PB 계량/배압 `PB_METERING_BACK_PRESSURE`(JSON2).
+- PB 사출/보압: 사진 OCR 항목 IF5~IF1·IF0, IP5~IP1, IV5~IV1, HP1, HT1 + 공정관리일지의 직접 입력 항목
+  (MOLD_NO, ITEM_NAME, SPEC, CAVITY, CT_INJECT, CT_COOL, CYCLE_TIME, NH, H4~H1, HOLD_GAUGE, SCREW_RPM, WATER_TEMP,
+  METER_TIME, HOPPER_DRYER, SHOT_WEIGHT, PRODUCT_WEIGHT, ROBOT_DWELL, OIL_TEMP, MATERIAL, REMAIN_DIST, HUMIDITY,
+  ROOM_TEMP, NOTE). MOLD_NO·ITEM_NAME·SPEC·MATERIAL·NOTE는 문자, 나머지는 숫자. 모두 FIELDS에 저장한다.
+- PB 계량/배압: S5~S1, RV5~RV1, BP5~BP1 (CP 계량 화면과 같은 키).
+- PB 계량/배압은 HYUNDAI MIRACON-I 화면(PB 6호기)을 기본으로 하고, S5~S1 화면도 선택할 수 있다(SCREEN_TYPE `METERING_MIRACON` / `PB_METERING_BACK_PRESSURE`).
+- MIRACON-I 글꼴의 빗금 0은 8로 잘못 읽히므로 8이 든 값은 자동 입력하지 않았다. 이제 `MiraconEightGlyph`가 글자 모양
+  (가운데 가로획 + 위아래 구멍 = 진짜 8, 왼쪽 아래→오른쪽 위 빗금 = 0)을 같은 칸의 0과 비교해 확인하고, 두 번 이상 확인된 8만 채운다.
+  PB 6호기 사진 5장: 빈칸 26→6, 오입력 0. CP MIRACON 사진의 0→8 오인식(68, 83, 30.8, 40.8 …)은 모두 계속 거부된다.

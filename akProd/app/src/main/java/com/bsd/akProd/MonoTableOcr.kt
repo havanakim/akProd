@@ -2,6 +2,7 @@ package com.bsd.akProd
 
 import android.content.Context
 import android.graphics.*
+import java.util.Locale
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognizer
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,33 @@ class MonoTableOcr(
 
     /** Candidate values that were read at least once in the screen's printed digit layout. */
     val displayMatched = mutableMapOf<String, MutableSet<String>>()
+
+    /**
+     * MIRACON-I: per cell and value, how many readings had every 8 confirmed as a real 8 by its glyph
+     * ([MiraconEightGlyph]) and how many had an 8 measured as a slashed 0.
+     */
+    val eightChecks = mutableMapOf<String, MutableMap<String, IntArray>>()
+
+    /** A value whose 8s the glyph check confirmed in at least two readings and twice as often as it refused them. */
+    fun eightsVerified(key: String, value: String): Boolean =
+        eightChecks[key]?.get(value)?.let { (yes, no) -> yes >= 2 && yes >= no * 2 } == true
+
+    private fun checkEights(key: String, value: String, shown: String, left: Float, top: Float, right: Float, bottom: Float) {
+        // The crop the glyph check was tuned on: the value's box plus a margin, so no digit touches the edge.
+        val boxHeight = bottom - top
+        val padX = boxHeight * .3f
+        val l = ((left - padX) * image.width).toInt().coerceAtLeast(0)
+        val r = ((right + padX) * image.width).toInt().coerceAtMost(image.width)
+        val t = ((top - boxHeight * .25f) * image.height).toInt().coerceAtLeast(0)
+        val b = ((bottom + boxHeight * .25f) * image.height).toInt().coerceAtMost(image.height)
+        if (r - l < 6 || b - t < 8) return
+        val pixels = IntArray((r - l) * (b - t))
+        image.getPixels(pixels, 0, r - l, l, t, r - l, b - t)
+        val real = MiraconEightGlyph.realEights(r - l, b - t, pixels, shown) ?: return
+        val all = shown.indices.filter { shown[it] == '8' }.all { it in real }
+        eightChecks.getOrPut(key) { linkedMapOf() }.getOrPut(value) { IntArray(2) }[if (all) 0 else 1]++
+        log.append("[8 형태 확인] $key $shown : " + (if (all) "진짜 8" else "빗금 0 의심") + "\n")
+    }
     val log = StringBuilder()
     var wrongPage = false
         private set
@@ -77,7 +105,7 @@ class MonoTableOcr(
             suggestedPage = when {
                 parsed.miraconHeaders >= 2 -> Cp14TableReader.MIRACON
                 // The S5~S1 metering screen has no S0; MIRACON-I's position row does.
-                page == Cp14TableReader.METERING && "S0" in parsed.cells -> Cp14TableReader.MIRACON
+                (page == Cp14TableReader.METERING || page == Cp14TableReader.PB_METERING) && "S0" in parsed.cells -> Cp14TableReader.MIRACON
                 parsed.cells.keys.any {
                     Cp14TableReader.prefix(it) in Cp14TableReader.prefixes(
                         Cp14TableReader.METERING
@@ -134,7 +162,9 @@ class MonoTableOcr(
             val shown = corrected ?: glyphs.joinToString("") { it.text }
             if (Cp14TableReader.matchesDisplay(key, shown) != false)
                 displayMatched.getOrPut(key) { mutableSetOf() }.add(cell.value)
-            log.append("[후보] $pass $key=${cell.value} ($shown)\n")
+            log.append("[후보] $pass $key=${cell.value} ($shown) @%.4f,%.4f,%.4f,%.4f\n".format(Locale.US, left, top, right, bottom))
+            if (page == Cp14TableReader.MIRACON && '8' in OcrNumericGlyphs.canonical(shown))
+                checkEights(key, cell.value, OcrNumericGlyphs.canonical(shown), left, top, right, bottom)
             if (pass == "미수집 칸 확대" || pass == "칸별 CLAHE" || pass == "칸별 Otsu") {
                 val counts = localVotes.getOrPut(key) { linkedMapOf() }
                 counts[cell.value] = (counts[cell.value] ?: 0) + 1
@@ -435,11 +465,15 @@ class MonoTableOcr(
                     chosen.value.any { it in "89" }
         if (page == Cp14TableReader.MIRACON) {
             // The slashed 0 of this font is read as 8 on blurred photos (60.0 -> 68, 40.0 -> 40.8) and a
-            // partial pixel fix still leaves 8s, so a value with an 8/9 left is never filled. A forwarded,
+            // partial pixel fix still leaves 8s, so a value with a 9, or an 8 whose glyph shape was not
+            // confirmed as a real 8 (middle bar, no slash: [eightsVerified]), is never filled. A forwarded,
             // down-sized photo (60.0 read once as 65) must also match the printed layout and come from two
             // passes; a camera original may drop padding (053.0 read as 53) and is trusted as read.
             val downSized = maxOf(image.width, image.height) < 2500
-            if (chosen.value.any { it in "89" } || downSized && (chosen.value !in displayMatched[key].orEmpty() ||
+            val realEight = '8' in chosen.value && '9' !in chosen.value && eightsVerified(key, chosen.value)
+            // The glyph check settles 8 against slashed 0, which is what the segment review flagged.
+            if (realEight) ambiguous = false
+            if (chosen.value.any { it in "89" } && !realEight || downSized && (chosen.value !in displayMatched[key].orEmpty() ||
                         (options[chosen.value]?.second ?: 0) < 2)) ambiguous = true
         }
         return Decision(chosen, pressureAgreement, remaining.takeIf { it.size > 1 }, ambiguous)

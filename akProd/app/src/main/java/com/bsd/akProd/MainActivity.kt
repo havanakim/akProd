@@ -48,6 +48,18 @@ class MainActivity : AppCompatActivity() {
                 Cp14TableReader.METERING
             )
         }
+        binding.btnPbInjection.setOnClickListener {
+            open(Cp14Activity::class.java, screenType = Cp14TableReader.PB_INJECTION)
+        }
+        binding.btnPbMetering.setOnClickListener {
+            open(Cp14Activity::class.java, screenType = Cp14TableReader.PB_METERING)
+        }
+        binding.btnPbInjectionHistory.setOnClickListener {
+            open(Cp14HistoryActivity::class.java, true, Cp14TableReader.PB_INJECTION)
+        }
+        binding.btnPbMeteringHistory.setOnClickListener {
+            open(Cp14HistoryActivity::class.java, true, Cp14TableReader.PB_METERING)
+        }
         binding.btnLogout.setOnClickListener { finish() }
         binding.button4.setOnClickListener { finishAffinity() }
     }

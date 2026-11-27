@@ -377,6 +377,23 @@ class MonoTableOcr(
     }
 
     /**
+     * One cursor-cell reading completed from its cut-off last digit ([shown], e.g. "030.0"): a candidate and a local
+     * vote like any other reading, kept only when it has the cell's printed layout.
+     */
+    private fun addCursorReading(key: String, shown: String, area: RectF, pass: String) {
+        val value = Cp14TableReader.number(shown) ?: return
+        if (Cp14TableReader.matchesDisplay(key, shown, page) != true) {
+            log.append("[커서 칸 제외] $key ($shown) 표시 형식 불일치\n"); return
+        }
+        val word = Cp14TableReader.Word(shown, area.left, area.top, area.right, area.bottom)
+        val votes = candidates.getOrPut(key) { linkedMapOf() }
+        votes[value] = Cp14TableReader.Cell(value, listOf(word)) to ((votes[value]?.second ?: 0) + 1)
+        displayMatched.getOrPut(key) { mutableSetOf() }.add(value)
+        localVotes.getOrPut(key) { linkedMapOf() }.let { it[value] = (it[value] ?: 0) + 1 }
+        log.append("[후보] $pass $key=$value ($shown, 잘린 0 보완)\n")
+    }
+
+    /**
      * Reads a cursor cell ([CursorCell]) from its box cut out and inverted: enlarged, then CLAHE and Otsu, each
      * reading a local vote ("커서 칸 …"). Returns false for an ordinary cell, which is left to the usual passes.
      * [x], [y] are the crop's pixel position in [image].
@@ -406,7 +423,19 @@ class MonoTableOcr(
                 (x + box[0] - margin + w).toFloat() / image.width, (y + box[1] - margin + h).toFloat() / image.height
             )
             cursorSource = Triple(key, cell, roi)
-            runCatching { accept(LcdOcrPipeline.recognize(latin, enlarged), enlarged.width, enlarged.height, roi, "커서 칸 확대") }
+            // OCR reads the value without the digit the box cuts off ("030." for 030.0, "930." with its slashed 0 as 9).
+            // It is completed only when every digit agrees with the cell's own glyphs and the cut-off digit matches
+            // the cell's full 0 ([CursorCell.complete]); otherwise it goes the usual way.
+            fun acceptCursor(text: Text, tw: Int, th: Int, area: RectF, pass: String) {
+                val raw = text.text.replace(Regex("\\s"), "")
+                if (raw.matches(Regex("[0-9]+\\."))) {
+                    val (completed, why) = CursorCell.complete(w, h, normalized, raw)
+                    log.append("[커서 칸 끝자리] $key $raw : " + (completed?.let { "→ $it" } ?: "확인 못 함") + " · $why\n")
+                    if (completed != null) { addCursorReading(key, completed, area, pass); return }
+                }
+                accept(text, tw, th, area, pass)
+            }
+            runCatching { acceptCursor(LcdOcrPipeline.recognize(latin, enlarged), enlarged.width, enlarged.height, roi, "커서 칸 확대") }
             LcdOcrPipeline.run(
                 cell, latin, selected = true, modes = 2,
                 accept = { text, cw, ch, local, pass ->
@@ -414,10 +443,20 @@ class MonoTableOcr(
                         roi.left + local.left * roi.width(), roi.top + local.top * roi.height(),
                         roi.left + local.right * roi.width(), roi.top + local.bottom * roi.height()
                     )
-                    if (pass == "CLAHE" || pass == "Otsu") accept(text, cw, ch, mapped, "커서 칸 $pass")
+                    if (pass == "CLAHE" || pass == "Otsu") acceptCursor(text, cw, ch, mapped, "커서 칸 $pass")
                 },
                 notice = {})
             read = !candidates[key].isNullOrEmpty()
+            if (read) {
+                // An earlier reading of the very value the box gave (030.0 both ways) is independent support for it;
+                // earlier readings of other values stay set aside.
+                @Suppress("UNCHECKED_CAST")
+                (saved[0] as? Map<String, Pair<Cp14TableReader.Cell, Int>>)?.forEach { (value, earlier) ->
+                    val now = candidates[key]?.get(value) ?: return@forEach
+                    candidates.getValue(key)[value] = now.first to now.second + earlier.second
+                    log.append("[커서 칸] $key 이전 후보 $value 일치 · ${earlier.second}표 추가\n")
+                }
+            }
         } finally {
             cursorSource = null; enlarged.recycle(); cell.recycle()
             if (!read) {

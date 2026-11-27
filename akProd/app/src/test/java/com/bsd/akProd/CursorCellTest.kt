@@ -1,5 +1,6 @@
 package com.bsd.akProd
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -28,6 +29,42 @@ class CursorCellTest {
             // After inversion the box background is dark and the digit strokes lit.
             val gray = normal.map { it and 255 }
             assertTrue(gray.count { it < 64 } > gray.size / 2 && gray.count { it > 160 } > nw * nh / 20)
+        }
+    }
+
+    /** The IHT cursor box of [photo], normalised. */
+    private fun iht(photo: String): Triple<Int, Int, IntArray> {
+        val b = mapOf("pb6inj_8" to intArrayOf(595, 1310, 745, 1375), "pb6inj_9" to intArrayOf(550, 1210, 695, 1280),
+            "pb6inj_10" to intArrayOf(675, 1185, 825, 1255)).getValue(photo)
+        val (w, h, px) = crop(photo, b[0], b[1], b[2], b[3])
+        return CursorCell.normalize(w, h, px)!!
+    }
+
+    @Test
+    fun completesTheCutOffZero() {
+        for (photo in listOf("pb6inj_8", "pb6inj_9", "pb6inj_10")) {
+            val (w, h, px) = iht(photo)
+            // 030.0 with its last 0 cut by the box; the slashed 0 also read as 9/8 or 6/8 elsewhere.
+            for (read in listOf("030.", "930.", "830.", "038.", "036.")) assertEquals("$photo $read", "030.0", CursorCell.complete(w, h, px, read).first)
+        }
+    }
+
+    @Test
+    fun refusesReadingsTheGlyphsContradict() {
+        for (photo in listOf("pb6inj_8", "pb6inj_9", "pb6inj_10")) {
+            val (w, h, px) = iht(photo)
+            // A 0 read as 3, and the 3 read as 0: the glyphs disagree with the reading.
+            assertNull(CursorCell.complete(w, h, px, "330.").first)
+            assertNull(CursorCell.complete(w, h, px, "000.").first)
+            // A cut-off 3 in place of the last digit is not completed to 0.
+            val glyphs = CursorCell.segment(w, h, px, 3).first!!
+            val three = glyphs[1]; val cut = glyphs[3]
+            val fake = px.copyOf()
+            for (y in cut[1] until cut[3]) for (x in cut[0] until cut[2]) {
+                val sx = three[0] + (x - cut[0]); val sy = three[1] + (y - cut[1]) * (three[3] - three[1]) / (cut[3] - cut[1])
+                fake[y * w + x] = if (sx < three[2] && sy < h) px[sy * w + sx] else 0xFF000000.toInt()
+            }
+            assertNull("$photo cut-off 3", CursorCell.complete(w, h, fake, "030.").first)
         }
     }
 

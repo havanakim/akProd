@@ -45,6 +45,9 @@ class MonoTableOcr(
      */
     val eightChecks = mutableMapOf<String, MutableMap<String, IntArray>>()
 
+    /** While a cursor cell is read: its key, its inverted crop and where that crop lies in the photo. */
+    private var cursorSource: Triple<String, Bitmap, RectF>? = null
+
     /** A value whose 8s the glyph check confirmed in at least two readings and twice as often as it refused them. */
     fun eightsVerified(key: String, value: String): Boolean =
         eightChecks[key]?.get(value)?.let { (yes, no) -> yes >= 2 && yes >= no * 2 } == true
@@ -133,16 +136,24 @@ class MonoTableOcr(
             val right = glyphs.maxOf { it.right };
             val bottom = glyphs.maxOf { it.bottom }
             val rawText = OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
+            // A cursor-cell reading is checked on its inverted crop (lit digits like every other cell), not on
+            // the photo's dark-on-lit pixels; its box is mapped into that crop.
+            val cursor = cursorSource?.takeIf { pass.startsWith("커서 칸") && it.first == key }
+            val source = cursor?.second ?: image
+            val (pl, pt, pr, pb) = cursor?.third?.let { roi ->
+                listOf((left - roi.left) / roi.width(), (top - roi.top) / roi.height(),
+                    (right - roi.left) / roi.width(), (bottom - roi.top) / roi.height()).map { it.coerceIn(0f, 1f) }
+            } ?: listOf(left, top, right, bottom)
             // The check exists to turn misread 8/9 back into 0. On small photos it can instead invent
             // 8s (030.0 -> 830.0, 53 -> 853.0); a "correction" with more 8/9 than the reading is refused.
             val zeroCheck = CaptureNumberCorrection.correct(
-                image, left, top, right, bottom, glyphs.joinToString("") { it.text },
+                source, pl, pt, pr, pb, glyphs.joinToString("") { it.text },
                 context, Cp14TableReader.MACHINE
             )?.takeIf { fixed -> fixed.count { it in "89" } <= rawText.count { it in "89" } }
             // The slashed zero is also misread as 3 or 6 (100.0 -> 103.0, 130.0 -> 136.0). Probe those
             // glyphs like an 8; only a positively verified zero shape replaces them, a real 3/6 stays.
             val base = zeroCheck ?: OcrNumericGlyphs.canonical(glyphs.joinToString("") { it.text })
-            val slashed = zeroFromThreeOrSix(base, left, top, right, bottom)
+            val slashed = zeroFromThreeOrSix(base, pl, pt, pr, pb, source)
             if (slashed != null) {
                 Cp14TableReader.number(base)
                     ?.let { beforeZeroCorrection.getOrPut(key) { mutableSetOf() }.add(it) }
@@ -158,17 +169,22 @@ class MonoTableOcr(
                 original.copy(value = Cp14TableReader.number(corrected) ?: original.value)
             } else original
             if (corrected == null && CaptureNumberCorrection.needsSegmentReview(
-                    image, left, top, right, bottom, glyphs.joinToString("") { it.text })
+                    source, pl, pt, pr, pb, glyphs.joinToString("") { it.text })
             ) segmentReview.add(key)
+            val shown = corrected ?: glyphs.joinToString("") { it.text }
+            // The cursor box often hides the last digit (02.7 read as 02): a cursor reading counts only in the
+            // cell's full printed layout.
+            if (cursor != null && Cp14TableReader.matchesDisplay(key, shown, page) != true) {
+                log.append("[커서 칸 제외] $key ($shown) 표시 형식 불일치\n"); return@forEach
+            }
             val votes = candidates.getOrPut(key) { linkedMapOf() }
             votes[cell.value] = cell to ((votes[cell.value]?.second ?: 0) + 1)
-            val shown = corrected ?: glyphs.joinToString("") { it.text }
             if (Cp14TableReader.matchesDisplay(key, shown, page) != false)
                 displayMatched.getOrPut(key) { mutableSetOf() }.add(cell.value)
             log.append("[후보] $pass $key=${cell.value} ($shown) @%.4f,%.4f,%.4f,%.4f\n".format(Locale.US, left, top, right, bottom))
             if (page in Cp14TableReader.miraconPages && '8' in OcrNumericGlyphs.canonical(shown))
                 checkEights(key, cell.value, OcrNumericGlyphs.canonical(shown), left, top, right, bottom)
-            if (pass == "미수집 칸 확대" || pass == "칸별 CLAHE" || pass == "칸별 Otsu") {
+            if (pass == "미수집 칸 확대" || pass == "칸별 CLAHE" || pass == "칸별 Otsu" || pass.startsWith("커서 칸")) {
                 val counts = localVotes.getOrPut(key) { linkedMapOf() }
                 counts[cell.value] = (counts[cell.value] ?: 0) + 1
             }
@@ -180,12 +196,13 @@ class MonoTableOcr(
         left: Float,
         top: Float,
         right: Float,
-        bottom: Float
+        bottom: Float,
+        source: Bitmap = image
     ): String? {
         if (!text.matches(Regex("[0-9]+(?:\\.[0-9]+)?")) || text.none { it == '3' || it == '6' }) return null
         val probe = text.map { if (it == '3' || it == '6') '8' else it }.joinToString("")
         val verified = CaptureNumberCorrection.correct(
-            image,
+            source,
             left,
             top,
             right,
@@ -263,7 +280,9 @@ class MonoTableOcr(
             it.text in active && (it.text.startsWith("HP") || candidates[it.text].isNullOrEmpty() ||
                     candidates[it.text]!!.size > 1 ||
                     (it.text in segmentReview && candidates[it.text]!!.keys.any { value -> value.any { digit -> digit in "89" } }) ||
-                    suspect(it.text))
+                    suspect(it.text) ||
+                    // MIRACON-I fills a down-sized photo's value only from two readings: a lone one is re-read.
+                    page in Cp14TableReader.miraconPages && candidates[it.text]!!.values.maxOf { c -> c.second } < 2)
         }.toList()
         // ML Kit and OpenCV work off the caller thread; candidate bookkeeping still resumes on the
         // caller's dispatcher, so a few cells can be in flight at once without racing the maps.
@@ -274,6 +293,64 @@ class MonoTableOcr(
             }.awaitAll()
         }
         lap("칸별 확대 ${cells.size}칸")
+    }
+
+    /**
+     * Reads a cursor cell ([CursorCell]) from its box cut out and inverted: enlarged, then CLAHE and Otsu, each
+     * reading a local vote ("커서 칸 …"). Returns false for an ordinary cell, which is left to the usual passes.
+     * [x], [y] are the crop's pixel position in [image].
+     */
+    private suspend fun readCursorCell(key: String, source: Bitmap, x: Int, y: Int, latin: TextRecognizer): Boolean {
+        val pixels = IntArray(source.width * source.height)
+        source.getPixels(pixels, 0, source.width, 0, 0, source.width, source.height)
+        val margin = 4
+        val box = CursorCell.box(source.width, source.height, pixels) ?: return false
+        val (w, h, normalized) = CursorCell.normalize(source.width, source.height, pixels, margin) ?: return false
+        if (w * 3 < 32 || h * 3 < 32) return false
+        val cell = Bitmap.createBitmap(normalized, w, h, Bitmap.Config.ARGB_8888)
+        val enlarged = Bitmap.createScaledBitmap(cell, w * 3, h * 3, true)
+        // Readings of this cell so far came from the inverted pixels (030.0 read as 30.8, 938.6 …): set them
+        // aside. They come back if the cursor passes yield nothing (e.g. the box hides the last digit).
+        log.append("[커서 칸] $key 반전 영역 ${box.joinToString(",")} · 이전 후보 보류: ${candidates[key]?.keys}\n")
+        val maps: List<MutableMap<String, *>> =
+            listOf(candidates, localVotes, displayMatched, beforeZeroCorrection, afterZeroCorrection, eightChecks)
+        val saved = maps.map { it.remove(key) }
+        val flags = (key in zeroCorrected) to (key in segmentReview)
+        zeroCorrected.remove(key); segmentReview.remove(key)
+        var read = false
+        try {
+            // Where the normalised crop lies in the photo (its margin reaches just past the box).
+            val roi = RectF(
+                (x + box[0] - margin).toFloat() / image.width, (y + box[1] - margin).toFloat() / image.height,
+                (x + box[0] - margin + w).toFloat() / image.width, (y + box[1] - margin + h).toFloat() / image.height
+            )
+            cursorSource = Triple(key, cell, roi)
+            runCatching { accept(LcdOcrPipeline.recognize(latin, enlarged), enlarged.width, enlarged.height, roi, "커서 칸 확대") }
+            LcdOcrPipeline.run(
+                cell, latin, selected = true, modes = 2,
+                accept = { text, cw, ch, local, pass ->
+                    val mapped = RectF(
+                        roi.left + local.left * roi.width(), roi.top + local.top * roi.height(),
+                        roi.left + local.right * roi.width(), roi.top + local.bottom * roi.height()
+                    )
+                    if (pass == "CLAHE" || pass == "Otsu") accept(text, cw, ch, mapped, "커서 칸 $pass")
+                },
+                notice = {})
+            read = !candidates[key].isNullOrEmpty()
+        } finally {
+            cursorSource = null; enlarged.recycle(); cell.recycle()
+            if (!read) {
+                // Nothing usable from the box: restore the earlier readings and let the ordinary passes run.
+                @Suppress("UNCHECKED_CAST")
+                maps.zip(saved).forEach { (map, value) ->
+                    (map as MutableMap<String, Any?>).remove(key); if (value != null) map[key] = value
+                }
+                if (flags.first) zeroCorrected.add(key)
+                if (flags.second) segmentReview.add(key)
+                log.append("[커서 칸] $key 읽은 값 없음 · 이전 후보 복원, 일반 경로로 읽기\n")
+            }
+        }
+        return read
     }
 
     /**
@@ -328,7 +405,8 @@ class MonoTableOcr(
         val y = (t * image.height).toInt()
         val w = ((r - l) * image.width).toInt().coerceAtMost(image.width - x)
         val h = ((b - t) * image.height).toInt().coerceAtMost(image.height - y)
-        if (w < 2 || h < 2) return
+        // ML Kit refuses images under 32px on a side; such a sliver is no cell worth reading.
+        if (w < 2 || h < 2 || w * 3 < 32 || h * 3 < 32) return
         val source = Bitmap.createBitmap(image, x, y, w, h)
         val enlarged = Bitmap.createScaledBitmap(source, w * 3, h * 3, true)
         try {
@@ -354,6 +432,9 @@ class MonoTableOcr(
                 // Every HP glyph is positively a zero on the source pixels; OCR cannot add evidence here.
                 if (anchor.text.startsWith("HP")) return
             }
+            // The field under the HMI cursor is drawn inverted (dark digits on a lit box, e.g. IHT 030.0). The
+            // ordinary passes read it as 30.8/38.8, so it is read only from its box cut out and inverted.
+            if (readCursorCell(anchor.text, source, x, y, latin)) return
             accept(
                 LcdOcrPipeline.recognize(latin, enlarged),
                 enlarged.width,
